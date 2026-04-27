@@ -1,0 +1,30 @@
+name: cat_snake
+description: A cute Cat Snake game
+publish_to: "none"
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.3.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.6
+  audioplayers: ^5.2.1   # (oder ^6.0.0, beides ok)
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/music/ukulele.mp3
+    - assets/sfx/
+    - assets/cats/black.png
+    - assets/cats/red.png
+    - assets/cats/tux.png
+    - assets/heads/classic.png
+    - assets/heads/round.png
+    - assets/heads/pixel.png
