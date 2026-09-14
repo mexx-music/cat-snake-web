@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'dart:ui' as ui;
 import '../constants/game_constants.dart';
@@ -42,6 +43,9 @@ class _GamePageState extends State<GamePage>
   double _tickElapsedMs = 0;
   int tickMs = 180;
   int score = 0;
+  int highScore = 0;
+  static const String _highScoreKey = 'cat_snake_high_score';
+  SharedPreferences? _preferences;
   bool _gameStarted = false;
   bool paused = false;
   bool wrapWalls = true; // Wrap standardmäßig EIN
@@ -90,6 +94,35 @@ class _GamePageState extends State<GamePage>
     _spawnMouse();
 
     setState(() {});
+  }
+
+  Future<void> _loadHighScore() async {
+    try {
+      final preferences = await SharedPreferences.getInstance();
+      _preferences = preferences;
+      final storedHighScore = preferences.getInt(_highScoreKey) ?? 0;
+      if (!mounted) return;
+      setState(() => highScore = max(highScore, storedHighScore));
+    } catch (error) {
+      debugPrint('Highscore konnte nicht geladen werden: $error');
+    }
+  }
+
+  Future<void> _saveHighScore() async {
+    try {
+      final preferences = _preferences ?? await SharedPreferences.getInstance();
+      _preferences = preferences;
+      await preferences.setInt(_highScoreKey, highScore);
+    } catch (error) {
+      debugPrint('Highscore konnte nicht gespeichert werden: $error');
+    }
+  }
+
+  void _addPoints(int points) {
+    score += points;
+    if (score <= highScore) return;
+    highScore = score;
+    unawaited(_saveHighScore());
   }
 
   Future<void> _startGame() async {
@@ -314,7 +347,7 @@ class _GamePageState extends State<GamePage>
       final ateMouse = (mouse != null && next == mouse);
 
       if (ateFood) {
-        score += 10;
+        _addPoints(10);
         if (tickMs > 70 && score % 30 == 0) {
           tickMs -= 10;
         }
@@ -322,7 +355,7 @@ class _GamePageState extends State<GamePage>
         if (soundOn) _playSfx('sfx/eat.wav');
         _spawnFood();
       } else if (ateMouse) {
-        score += 30; // Bonus
+        _addPoints(30); // Bonus
         if (soundOn) _playSfx('sfx/mouse.wav');
         if (tickMs > 60) {
           tickMs -= 5;
@@ -343,7 +376,7 @@ class _GamePageState extends State<GamePage>
 
       // 4) Sicherheit: falls Maus nach Bewegung unter dem Kopf landet
       if (mouse != null && snake.first == mouse) {
-        score += 30;
+        _addPoints(30);
         if (soundOn) _playSfx('sfx/mouse.wav');
         _showMouseBonus(snake.first);
         _spawnMouse();
@@ -363,7 +396,7 @@ class _GamePageState extends State<GamePage>
       barrierDismissible: false,
       builder: (ctx) => AlertDialog(
         title: const Text('Game Over'),
-        content: Text('Score: $score'),
+        content: Text('Score: $score\nHighscore: $highScore'),
         actions: [
           TextButton(
             onPressed: () {
@@ -485,6 +518,7 @@ class _GamePageState extends State<GamePage>
 
     // Spielfeld vorbereiten; gestartet wird bewusst über den Start-Button.
     _newGame();
+    unawaited(_loadHighScore());
   }
 
   @override
@@ -810,17 +844,36 @@ class _GamePageState extends State<GamePage>
                   child: Row(
                     children: [
                       Expanded(
-                        child: Row(
-                          children: [
-                            const Icon(Icons.stars, size: 18),
-                            const SizedBox(width: 6),
-                            const Text('Score: '),
-                            Text(
-                              '$score',
-                              style:
-                                  const TextStyle(fontWeight: FontWeight.w600),
-                            ),
-                          ],
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          alignment: Alignment.centerLeft,
+                          child: Row(
+                            children: [
+                              const Icon(Icons.stars, size: 18),
+                              const SizedBox(width: 6),
+                              Text(
+                                'Score: $score',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              const SizedBox(width: 14),
+                              const Icon(
+                                Icons.emoji_events,
+                                size: 18,
+                                color: Colors.amberAccent,
+                              ),
+                              const SizedBox(width: 5),
+                              Text(
+                                'Highscore: $highScore',
+                                key: const Key('high-score-value'),
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.amberAccent,
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                       Row(

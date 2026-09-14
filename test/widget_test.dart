@@ -2,12 +2,16 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:cat_snake/main.dart';
 
 void main() {
   testWidgets('shows keyboard hint beside the board on desktop',
       (tester) async {
+    SharedPreferences.setMockInitialValues({
+      'cat_snake_high_score': 120,
+    });
     debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
     addTearDown(() => debugDefaultTargetPlatformOverride = null);
     await tester.binding.setSurfaceSize(const Size(844, 390));
@@ -15,12 +19,14 @@ void main() {
 
     await tester.pumpWidget(const CatSnakeApp());
     await tester.pump();
+    await tester.pump();
 
     expect(find.text('Cat Snake'), findsOneWidget);
     expect(find.byKey(const Key('game-board')), findsOneWidget);
     expect(find.byKey(const Key('dpad')), findsNothing);
     expect(find.byKey(const Key('keyboard-hint')), findsOneWidget);
     expect(find.text('Steuerung: Pfeiltasten'), findsOneWidget);
+    expect(find.text('Highscore: 120'), findsOneWidget);
     expect(find.byKey(const Key('start-button')), findsOneWidget);
 
     await tester.pump(const Duration(milliseconds: 400));
@@ -68,6 +74,7 @@ void main() {
   });
 
   testWidgets('keeps touch controls on mobile', (tester) async {
+    SharedPreferences.setMockInitialValues({});
     debugDefaultTargetPlatformOverride = TargetPlatform.android;
     addTearDown(() => debugDefaultTargetPlatformOverride = null);
     await tester.binding.setSurfaceSize(const Size(844, 390));
@@ -78,6 +85,7 @@ void main() {
 
     expect(find.byKey(const Key('dpad')), findsOneWidget);
     expect(find.byKey(const Key('keyboard-hint')), findsNothing);
+    expect(find.text('Highscore: 0'), findsOneWidget);
 
     debugDefaultTargetPlatformOverride = null;
     await tester.pumpWidget(const SizedBox.shrink());
