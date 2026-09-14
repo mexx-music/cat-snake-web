@@ -24,6 +24,7 @@ class _GamePageState extends State<GamePage>
   List<Point<int>> snake = [];
   List<Point<int>> _previousSnake = [];
   Direction dir = Direction.right;
+  Direction _previousDirection = Direction.right;
   Direction? _pendingDir;
   Point<int>? food;
 
@@ -170,6 +171,7 @@ class _GamePageState extends State<GamePage>
     _gameStarted = false;
     paused = false;
     dir = Direction.right;
+    _previousDirection = Direction.right;
     _pendingDir = null;
 
     snake = [
@@ -207,6 +209,7 @@ class _GamePageState extends State<GamePage>
   void _togglePause() async {
     if (!_gameStarted) return;
     setState(() => paused = !paused);
+    if (paused) _moveCtrl.value = 1;
     if (!soundOn) return;
 
     if (paused) {
@@ -323,6 +326,7 @@ class _GamePageState extends State<GamePage>
   void _tick() {
     if (!mounted || !_gameStarted || paused) return;
 
+    _previousDirection = dir;
     dir = _pendingDir ?? dir;
     _pendingDir = null;
 
@@ -359,6 +363,9 @@ class _GamePageState extends State<GamePage>
     }
 
     _previousSnake = List.of(snake);
+    _moveCtrl.stop();
+    _moveCtrl.duration = Duration(milliseconds: max(45, tickMs - 20));
+    _moveCtrl.value = 0;
     setState(() {
       // 1) Kopf vorrücken
       snake = [next, ...snake];
@@ -404,8 +411,7 @@ class _GamePageState extends State<GamePage>
         _spawnMouse();
       }
     });
-    _moveCtrl.duration = Duration(milliseconds: max(70, tickMs - 15));
-    _moveCtrl.forward(from: 0);
+    _moveCtrl.forward();
   }
 
   void _gameOver() {
@@ -515,7 +521,7 @@ class _GamePageState extends State<GamePage>
 
     _moveCtrl = AnimationController(
       vsync: this,
-      duration: Duration(milliseconds: tickMs - 15),
+      duration: Duration(milliseconds: tickMs - 20),
       value: 1,
     );
 
@@ -563,6 +569,7 @@ class _GamePageState extends State<GamePage>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed || paused || !mounted) return;
     setState(() => paused = true);
+    _moveCtrl.value = 1;
     unawaited(_pauseBgm());
   }
 
@@ -756,6 +763,7 @@ class _GamePageState extends State<GamePage>
                         food: food,
                         mouse: mouse,
                         direction: dir,
+                        previousDirection: _previousDirection,
                         skin: selectedSkin,
                         movement: _moveCtrl,
                         bodyDark: bodyDark,
@@ -1074,6 +1082,7 @@ class _BoardPainter extends CustomPainter {
   final Point<int>? food;
   final Point<int>? mouse;
   final Direction direction;
+  final Direction previousDirection;
   final CatSkin skin;
   final Animation<double> movement;
 
@@ -1090,6 +1099,7 @@ class _BoardPainter extends CustomPainter {
     required this.food,
     required this.mouse,
     required this.direction,
+    required this.previousDirection,
     required this.skin,
     required this.movement,
     required this.bodyDark,
@@ -1155,7 +1165,9 @@ class _BoardPainter extends CustomPainter {
       return Offset(dx, dy);
     }
 
-    final moveT = Curves.easeOutCubic.transform(movement.value);
+    // Linear über fast den gesamten Spiel-Takt: kein schneller Satz am Anfang,
+    // sondern gleichmäßiges Gleiten von einem Rasterfeld zum nächsten.
+    final moveT = movement.value;
     final centersOrig = <Offset>[
       for (int i = 0; i < snake.length; i++)
         () {
@@ -1358,12 +1370,17 @@ class _BoardPainter extends CustomPainter {
     if (snake.isNotEmpty) {
       final headCenter = wrap(centers.first);
       final headSize = cell * 1.02;
-      final angle = switch (direction) {
-        Direction.right => 0.0,
-        Direction.down => pi / 2,
-        Direction.left => pi,
-        Direction.up => -pi / 2,
-      };
+      double angleFor(Direction value) => switch (value) {
+            Direction.right => 0.0,
+            Direction.down => pi / 2,
+            Direction.left => pi,
+            Direction.up => -pi / 2,
+          };
+      final previousAngle = angleFor(previousDirection);
+      final targetAngle = angleFor(direction);
+      var angleDelta = (targetAngle - previousAngle + pi) % (2 * pi) - pi;
+      if (angleDelta == -pi) angleDelta = pi;
+      final angle = previousAngle + angleDelta * moveT;
 
       canvas.drawCircle(
         headCenter + Offset(0, cell * 0.08),
@@ -1413,6 +1430,7 @@ class _BoardPainter extends CustomPainter {
         old.food != food ||
         old.mouse != mouse ||
         old.direction != direction ||
+        old.previousDirection != previousDirection ||
         old.skin != skin ||
         old.cell != cell ||
         old.cols != cols ||

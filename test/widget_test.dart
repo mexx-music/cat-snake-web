@@ -31,6 +31,16 @@ void main() {
 
     await tester.sendKeyEvent(LogicalKeyboardKey.arrowUp);
     await tester.pump();
+
+    await tester.pump(const Duration(milliseconds: 180));
+    final boardPaint = tester
+        .widgetList<CustomPaint>(find.byType(CustomPaint))
+        .singleWhere(
+            (paint) => paint.painter.runtimeType.toString() == '_BoardPainter');
+    final movement =
+        (boardPaint.painter as dynamic).movement as Animation<double>;
+    await tester.pump(const Duration(milliseconds: 70));
+    expect(movement.value, inExclusiveRange(0, 1));
     expect(tester.takeException(), isNull);
 
     await tester.pumpWidget(const SizedBox.shrink());
