@@ -15,13 +15,14 @@ class GamePage extends StatefulWidget {
 }
 
 class _GamePageState extends State<GamePage>
-    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
+    with TickerProviderStateMixin, WidgetsBindingObserver {
   // Spielfeld
   static const int rows = 16;
   static const int cols = 22;
 
   final Random _rand = Random();
   List<Point<int>> snake = [];
+  List<Point<int>> _previousSnake = [];
   Direction dir = Direction.right;
   Direction? _pendingDir;
   Point<int>? food;
@@ -48,6 +49,7 @@ class _GamePageState extends State<GamePage>
   bool soundOn = true;
 
   // Bonus-Animation (verlängert + Fade)
+  late final AnimationController _moveCtrl;
   late final AnimationController _bonusCtrl;
   late final Animation<double> _bonusT;
   late final Animation<double> _bonusOpacity;
@@ -175,6 +177,8 @@ class _GamePageState extends State<GamePage>
       const Point<int>(cols ~/ 2 - 2, rows ~/ 2),
       const Point<int>(cols ~/ 2 - 3, rows ~/ 2),
     ];
+    _previousSnake = List.of(snake);
+    _moveCtrl.value = 1;
 
     mouse = null;
     _mouseTick = 0;
@@ -354,6 +358,7 @@ class _GamePageState extends State<GamePage>
       return;
     }
 
+    _previousSnake = List.of(snake);
     setState(() {
       // 1) Kopf vorrücken
       snake = [next, ...snake];
@@ -399,6 +404,8 @@ class _GamePageState extends State<GamePage>
         _spawnMouse();
       }
     });
+    _moveCtrl.duration = Duration(milliseconds: max(70, tickMs - 15));
+    _moveCtrl.forward(from: 0);
   }
 
   void _gameOver() {
@@ -506,6 +513,12 @@ class _GamePageState extends State<GamePage>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
 
+    _moveCtrl = AnimationController(
+      vsync: this,
+      duration: Duration(milliseconds: tickMs - 15),
+      value: 1,
+    );
+
     // Bonus-Animation einrichten
     _bonusCtrl = AnimationController(
       vsync: this,
@@ -537,6 +550,7 @@ class _GamePageState extends State<GamePage>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _timer?.cancel();
+    _moveCtrl.dispose();
     _bonusCtrl.dispose();
     _bgmSub?.cancel();
     for (final player in [_bgm, _sfxEat, _sfxMouse, _sfxOver]) {
@@ -738,8 +752,12 @@ class _GamePageState extends State<GamePage>
                         cols: cols,
                         cell: cell,
                         snake: snake,
+                        previousSnake: _previousSnake,
                         food: food,
                         mouse: mouse,
+                        direction: dir,
+                        skin: selectedSkin,
+                        movement: _moveCtrl,
                         bodyDark: bodyDark,
                         bodyLight: bodyLight,
                         headImage: _headImage,
@@ -1052,8 +1070,12 @@ class _BoardPainter extends CustomPainter {
   final int cols;
   final double cell;
   final List<Point<int>> snake;
+  final List<Point<int>> previousSnake;
   final Point<int>? food;
   final Point<int>? mouse;
+  final Direction direction;
+  final CatSkin skin;
+  final Animation<double> movement;
 
   final Color bodyDark;
   final Color bodyLight;
@@ -1064,12 +1086,16 @@ class _BoardPainter extends CustomPainter {
     required this.cols,
     required this.cell,
     required this.snake,
+    required this.previousSnake,
     required this.food,
     required this.mouse,
+    required this.direction,
+    required this.skin,
+    required this.movement,
     required this.bodyDark,
     required this.bodyLight,
     required this.headImage,
-  });
+  }) : super(repaint: movement);
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -1116,9 +1142,34 @@ class _BoardPainter extends CustomPainter {
 
     if (snake.isEmpty) return;
 
-    // Zentren der Zellen (original)
+    Offset centerOf(Point<int> point) =>
+        Offset((point.x + 0.5) * cell, (point.y + 0.5) * cell);
+
+    Offset shortestTarget(Offset from, Offset to) {
+      var dx = to.dx;
+      var dy = to.dy;
+      if (dx - from.dx > W / 2) dx -= W;
+      if (from.dx - dx > W / 2) dx += W;
+      if (dy - from.dy > H / 2) dy -= H;
+      if (from.dy - dy > H / 2) dy += H;
+      return Offset(dx, dy);
+    }
+
+    final moveT = Curves.easeOutCubic.transform(movement.value);
     final centersOrig = <Offset>[
-      for (final p in snake) Offset((p.x + 0.5) * cell, (p.y + 0.5) * cell),
+      for (int i = 0; i < snake.length; i++)
+        () {
+          final current = centerOf(snake[i]);
+          if (previousSnake.isEmpty) return current;
+          final previous = centerOf(
+            previousSnake[min(i, previousSnake.length - 1)],
+          );
+          return Offset.lerp(
+            previous,
+            shortestTarget(previous, current),
+            moveT,
+          )!;
+        }(),
     ];
 
     // Unwrap: wähle pro Segment die nächstliegende gewrappt/geoffsette Position
@@ -1159,56 +1210,136 @@ class _BoardPainter extends CustomPainter {
     canvas.save();
     canvas.clipRRect(boardRRect);
 
-    // Schatten unter dem Körper
-    final shadowPaint = Paint()
-      ..color = Colors.black.withValues(alpha: 0.12)
-      ..style = PaintingStyle.stroke
-      ..strokeCap = StrokeCap.round;
-
-    double radiusAt(int i) {
-      final headR = cell * 0.42;
-      final tailR = cell * 0.25;
-      if (centers.length <= 1) return headR;
-      final t = 1.0 - (i / (centers.length - 1));
-      return tailR + (headR - tailR) * t;
-    }
-
-    for (int i = centers.length - 1; i > 0; i--) {
-      final double w = 2.0 * min(radiusAt(i), radiusAt(i - 1)).toDouble() + 2.0;
-      shadowPaint.strokeWidth = w;
-      canvas.drawLine(
-        centers[i] + const Offset(0, 2),
-        centers[i - 1] + const Offset(0, 2),
-        shadowPaint,
+    Offset catmullRom(
+      Offset p0,
+      Offset p1,
+      Offset p2,
+      Offset p3,
+      double t,
+    ) {
+      final t2 = t * t;
+      final t3 = t2 * t;
+      return Offset(
+        0.5 *
+            ((2 * p1.dx) +
+                (-p0.dx + p2.dx) * t +
+                (2 * p0.dx - 5 * p1.dx + 4 * p2.dx - p3.dx) * t2 +
+                (-p0.dx + 3 * p1.dx - 3 * p2.dx + p3.dx) * t3),
+        0.5 *
+            ((2 * p1.dy) +
+                (-p0.dy + p2.dy) * t +
+                (2 * p0.dy - 5 * p1.dy + 4 * p2.dy - p3.dy) * t2 +
+                (-p0.dy + 3 * p1.dy - 3 * p2.dy + p3.dy) * t3),
       );
     }
 
-    // Körperlinien (glatt, runde Kappen)
-    final bodyPaint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeCap = StrokeCap.round;
-
-    for (int i = centers.length - 1; i > 0; i--) {
-      final t = 1.0 - (i / (centers.length - 1));
-      final color = Color.lerp(bodyDark, bodyLight, t)!.withValues(alpha: 0.95);
-      bodyPaint
-        ..color = color
-        ..strokeWidth = 2.0 * min(radiusAt(i), radiusAt(i - 1)).toDouble();
-      canvas.drawLine(centers[i], centers[i - 1], bodyPaint);
+    final tailCenters = List<Offset>.of(centers);
+    if (tailCenters.length > 1) {
+      final tail = tailCenters.last;
+      final beforeTail = tailCenters[tailCenters.length - 2];
+      final delta = tail - beforeTail;
+      final distance = max(delta.distance, 0.001);
+      final along = delta / distance;
+      final sideways = Offset(-along.dy, along.dx);
+      final bend = sin(snake.length * 1.7) * cell * 0.12;
+      tailCenters.add(tail + along * cell * 0.32 + sideways * bend);
     }
 
-    // Gelenk-Kreise (Weichzeichnung) – in Skin-Farben (dunkel → hell)
-    final jointPaint = Paint()..style = PaintingStyle.fill;
-    for (int i = centers.length - 1; i >= 0; i--) {
-      final r = radiusAt(i);
-      final t = 1.0 - (i / centers.length); // 0 (=Schwanz) … 1 (=Kopf)
-      jointPaint.color = Color.lerp(bodyDark, bodyLight, t)!;
-      canvas.drawCircle(wrap(centers[i]), r, jointPaint);
+    final samples = <({Offset center, double progress, double radius})>[];
+    if (tailCenters.length == 1) {
+      samples.add((center: tailCenters.first, progress: 0, radius: cell * 0.4));
+    } else {
+      const samplesPerSegment = 5;
+      final lastSegment = tailCenters.length - 1;
+      for (int i = 0; i < lastSegment; i++) {
+        final p0 = tailCenters[max(0, i - 1)];
+        final p1 = tailCenters[i];
+        final p2 = tailCenters[i + 1];
+        final p3 = tailCenters[min(lastSegment, i + 2)];
+        for (int step = 0; step < samplesPerSegment; step++) {
+          final t = step / samplesPerSegment;
+          final progress = (i + t) / lastSegment;
+          final radius = ui.lerpDouble(cell * 0.4, cell * 0.1, progress)!;
+          samples.add((
+            center: catmullRom(p0, p1, p2, p3, t),
+            progress: progress,
+            radius: radius,
+          ));
+        }
+      }
+      samples.add((
+        center: tailCenters.last,
+        progress: 1,
+        radius: cell * 0.1,
+      ));
+    }
 
-      // dezenter Glanz
-      final highlight = Paint()..color = Colors.white.withValues(alpha: 0.08);
+    final shadowPaint = Paint()
+      ..style = PaintingStyle.fill
+      ..color = Colors.black.withValues(alpha: 0.24);
+    final outlinePaint = Paint()
+      ..style = PaintingStyle.fill
+      ..color = Color.lerp(bodyDark, Colors.black, 0.35)!;
+    final furPaint = Paint()..style = PaintingStyle.fill;
+    final shinePaint = Paint()
+      ..style = PaintingStyle.fill
+      ..color = Colors.white.withValues(alpha: 0.055);
+
+    for (final sample in samples.reversed) {
       canvas.drawCircle(
-          wrap(centers[i]) + Offset(-r * 0.25, -r * 0.25), r * 0.7, highlight);
+        wrap(sample.center + Offset(0, cell * 0.09)),
+        sample.radius + cell * 0.055,
+        shadowPaint,
+      );
+    }
+    for (final sample in samples.reversed) {
+      canvas.drawCircle(
+        wrap(sample.center),
+        sample.radius + cell * 0.045,
+        outlinePaint,
+      );
+    }
+    for (final sample in samples.reversed) {
+      furPaint.color = Color.lerp(
+        bodyLight,
+        bodyDark,
+        sample.progress * 0.82,
+      )!;
+      canvas.drawCircle(wrap(sample.center), sample.radius, furPaint);
+    }
+    for (final sample in samples.reversed) {
+      canvas.drawCircle(
+        wrap(sample.center +
+            Offset(-sample.radius * 0.24, -sample.radius * 0.24)),
+        sample.radius * 0.52,
+        shinePaint,
+      );
+    }
+
+    final patternColor = switch (skin) {
+      CatSkin.red => const Color(0xFF6B2618).withValues(alpha: 0.68),
+      CatSkin.black => Colors.white.withValues(alpha: 0.2),
+      CatSkin.tuxedo => const Color(0xFFF4EBDD).withValues(alpha: 0.72),
+    };
+    final patternPaint = Paint()
+      ..color = patternColor
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round
+      ..strokeWidth = cell * 0.095;
+    for (final marker in const [0.25, 0.42, 0.59, 0.76]) {
+      final index = (marker * (samples.length - 1)).round();
+      final previous = samples[max(0, index - 1)].center;
+      final next = samples[min(samples.length - 1, index + 1)].center;
+      final delta = next - previous;
+      if (delta.distance == 0) continue;
+      final normal = Offset(-delta.dy, delta.dx) / delta.distance;
+      final sample = samples[index];
+      final center = wrap(sample.center);
+      canvas.drawLine(
+        center - normal * sample.radius * 0.62,
+        center + normal * sample.radius * 0.62,
+        patternPaint,
+      );
     }
 
     // Futter (🐟)
@@ -1225,11 +1356,25 @@ class _BoardPainter extends CustomPainter {
 
     // Kopf zeichnen
     if (snake.isNotEmpty) {
-      final head = snake.first;
-      final headCenter = Offset((head.x + 0.5) * cell, (head.y + 0.5) * cell);
-      final headSize = cell * 0.9;
+      final headCenter = wrap(centers.first);
+      final headSize = cell * 1.02;
+      final angle = switch (direction) {
+        Direction.right => 0.0,
+        Direction.down => pi / 2,
+        Direction.left => pi,
+        Direction.up => -pi / 2,
+      };
+
+      canvas.drawCircle(
+        headCenter + Offset(0, cell * 0.08),
+        headSize * 0.45,
+        Paint()..color = Colors.black.withValues(alpha: 0.22),
+      );
+      canvas.save();
+      canvas.translate(headCenter.dx, headCenter.dy);
+      canvas.rotate(angle);
       final dst = Rect.fromCenter(
-        center: headCenter,
+        center: Offset.zero,
         width: headSize,
         height: headSize,
       );
@@ -1243,8 +1388,9 @@ class _BoardPainter extends CustomPainter {
           Paint(),
         );
       } else {
-        _drawEmoji(canvas, '🐱', headCenter, headSize); // Fallback
+        _drawEmoji(canvas, '🐱', Offset.zero, headSize); // Fallback
       }
+      canvas.restore();
     }
 
     canvas.restore();
@@ -1263,8 +1409,11 @@ class _BoardPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _BoardPainter old) {
     return old.snake != snake ||
+        old.previousSnake != previousSnake ||
         old.food != food ||
         old.mouse != mouse ||
+        old.direction != direction ||
+        old.skin != skin ||
         old.cell != cell ||
         old.cols != cols ||
         old.rows != rows ||
