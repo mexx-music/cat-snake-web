@@ -2,6 +2,7 @@ import 'dart:ui'; // für BackdropFilter / ImageFilter.blur
 import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'dart:ui' as ui;
@@ -34,8 +35,11 @@ class _GamePageState extends State<GamePage>
       12; // je größer, desto seltener bewegt sich die Maus
   int _mouseTick = 0;
 
-  // Game loop
-  Timer? _timer;
+  // Game loop: bildschirmgetaktet statt Timer, damit die Bewegung zwischen
+  // zwei logischen Rasterfeldern ohne Pause oder Timer-Jitter weiterläuft.
+  Ticker? _gameTicker;
+  Duration? _lastFrameTime;
+  double _tickElapsedMs = 0;
   int tickMs = 180;
   int score = 0;
   bool _gameStarted = false;
@@ -165,7 +169,9 @@ class _GamePageState extends State<GamePage>
   }
 
   void _newGame() {
-    _timer?.cancel();
+    _gameTicker?.stop();
+    _lastFrameTime = null;
+    _tickElapsedMs = 0;
     score = 0;
     tickMs = 180;
     _gameStarted = false;
@@ -197,19 +203,52 @@ class _GamePageState extends State<GamePage>
       _gameStarted = true;
       paused = false;
     });
-    _startTimer();
+    _beginContinuousMovement();
     await _startBgmIfAllowed();
   }
 
-  void _startTimer() {
-    _timer?.cancel();
-    _timer = Timer.periodic(Duration(milliseconds: tickMs), (_) => _tick());
+  void _beginContinuousMovement() {
+    _lastFrameTime = null;
+    _tickElapsedMs = 0;
+    _tick();
+    if (_gameStarted && !paused) _gameTicker?.start();
+  }
+
+  void _onGameFrame(Duration elapsed) {
+    if (!mounted || !_gameStarted || paused) return;
+
+    final previousFrame = _lastFrameTime;
+    _lastFrameTime = elapsed;
+    if (previousFrame == null) return;
+
+    // Große Sprünge (z. B. nach einem inaktiven Browser-Tab) begrenzen.
+    final frameMs = min(
+      50.0,
+      (elapsed - previousFrame).inMicroseconds /
+          Duration.microsecondsPerMillisecond,
+    );
+    _tickElapsedMs += frameMs;
+
+    while (_tickElapsedMs >= tickMs && _gameStarted && !paused) {
+      _tickElapsedMs -= tickMs;
+      _tick();
+    }
+
+    if (_gameStarted && !paused) {
+      _moveCtrl.value = (_tickElapsedMs / tickMs).clamp(0.0, 1.0);
+    }
   }
 
   void _togglePause() async {
     if (!_gameStarted) return;
     setState(() => paused = !paused);
-    if (paused) _moveCtrl.value = 1;
+    if (paused) {
+      _gameTicker?.stop();
+      _lastFrameTime = null;
+    } else {
+      _lastFrameTime = null;
+      _gameTicker?.start();
+    }
     if (!soundOn) return;
 
     if (paused) {
@@ -363,8 +402,6 @@ class _GamePageState extends State<GamePage>
     }
 
     _previousSnake = List.of(snake);
-    _moveCtrl.stop();
-    _moveCtrl.duration = Duration(milliseconds: max(45, tickMs - 20));
     _moveCtrl.value = 0;
     setState(() {
       // 1) Kopf vorrücken
@@ -378,7 +415,6 @@ class _GamePageState extends State<GamePage>
         score += 10;
         if (tickMs > 70 && score % 30 == 0) {
           tickMs -= 10;
-          _startTimer();
         }
         if (soundOn) _playSfx('sfx/eat.wav');
         _spawnFood();
@@ -387,7 +423,6 @@ class _GamePageState extends State<GamePage>
         if (soundOn) _playSfx('sfx/mouse.wav');
         if (tickMs > 60) {
           tickMs -= 5;
-          _startTimer();
         }
         _showMouseBonus(next);
         _spawnMouse();
@@ -411,11 +446,11 @@ class _GamePageState extends State<GamePage>
         _spawnMouse();
       }
     });
-    _moveCtrl.forward();
   }
 
   void _gameOver() {
-    _timer?.cancel();
+    _gameTicker?.stop();
+    _lastFrameTime = null;
     setState(() => _gameStarted = false);
     if (soundOn) _playSfx('sfx/game_over.wav');
     unawaited(_pauseBgm());
@@ -521,9 +556,9 @@ class _GamePageState extends State<GamePage>
 
     _moveCtrl = AnimationController(
       vsync: this,
-      duration: Duration(milliseconds: tickMs - 20),
       value: 1,
     );
+    _gameTicker = createTicker(_onGameFrame);
 
     // Bonus-Animation einrichten
     _bonusCtrl = AnimationController(
@@ -555,7 +590,7 @@ class _GamePageState extends State<GamePage>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _timer?.cancel();
+    _gameTicker?.dispose();
     _moveCtrl.dispose();
     _bonusCtrl.dispose();
     _bgmSub?.cancel();
@@ -569,7 +604,8 @@ class _GamePageState extends State<GamePage>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed || paused || !mounted) return;
     setState(() => paused = true);
-    _moveCtrl.value = 1;
+    _gameTicker?.stop();
+    _lastFrameTime = null;
     unawaited(_pauseBgm());
   }
 

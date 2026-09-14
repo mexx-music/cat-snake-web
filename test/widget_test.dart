@@ -32,15 +32,29 @@ void main() {
     await tester.sendKeyEvent(LogicalKeyboardKey.arrowUp);
     await tester.pump();
 
-    await tester.pump(const Duration(milliseconds: 180));
     final boardPaint = tester
         .widgetList<CustomPaint>(find.byType(CustomPaint))
         .singleWhere(
             (paint) => paint.painter.runtimeType.toString() == '_BoardPainter');
     final movement =
         (boardPaint.painter as dynamic).movement as Animation<double>;
-    await tester.pump(const Duration(milliseconds: 70));
-    expect(movement.value, inExclusiveRange(0, 1));
+
+    // Der bildschirmgetaktete Lauf bewegt sich auf jedem Frame weiter und
+    // beginnt am Feldwechsel ohne Stillstand direkt mit dem nächsten Weg.
+    for (var i = 0; i < 8; i++) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    final beforeFieldChange = movement.value;
+    expect(beforeFieldChange, greaterThan(0.5));
+
+    for (var i = 0; i < 5; i++) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    final afterFieldChange = movement.value;
+    expect(afterFieldChange, lessThan(beforeFieldChange));
+
+    await tester.pump(const Duration(milliseconds: 16));
+    expect(movement.value, greaterThan(afterFieldChange));
     expect(tester.takeException(), isNull);
 
     await tester.pumpWidget(const SizedBox.shrink());
