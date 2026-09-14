@@ -1110,12 +1110,6 @@ class _BoardPainter extends CustomPainter {
     final W = cell * cols;
     final H = cell * rows;
 
-    // Hintergrund + Grid (Glasoptik)
-    final gridPaint = Paint()
-      ..color = Colors.grey.withValues(alpha: 0.12)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1;
-
     final boardRRect = RRect.fromRectAndRadius(
       Rect.fromLTWH(0, 0, W, H),
       const Radius.circular(16),
@@ -1130,23 +1124,79 @@ class _BoardPainter extends CustomPainter {
     canvas.drawRRect(boardRRect, shadow);
     canvas.restore();
 
-    // „Glas“-Füllung
+    // Ruhige Nachtwiese als Spielfeldgrund.
     final boardRect = Rect.fromLTWH(0, 0, W, H);
     final bgPaint = Paint()
       ..shader = const LinearGradient(
         begin: Alignment.topLeft,
         end: Alignment.bottomRight,
-        colors: [Color(0x26FFFFFF), Color(0x0DFFFFFF)],
+        colors: [Color(0xFF214B43), Color(0xFF173A38), Color(0xFF102B31)],
       ).createShader(boardRect);
     canvas.drawRRect(boardRRect, bgPaint);
 
-    // dezentes Grid
-    for (int y = 0; y <= rows; y++) {
-      canvas.drawLine(Offset(0, y * cell), Offset(W, y * cell), gridPaint);
+    canvas.save();
+    canvas.clipRRect(boardRRect);
+
+    // Weiche Licht- und Moosflecken geben Tiefe, ohne vom Spiel abzulenken.
+    for (final patch in const [
+      (0.18, 0.2, 0.24),
+      (0.78, 0.28, 0.3),
+      (0.42, 0.78, 0.27),
+      (0.9, 0.82, 0.18),
+    ]) {
+      final patchCenter = Offset(W * patch.$1, H * patch.$2);
+      final radius = min(W, H) * patch.$3;
+      canvas.drawCircle(
+        patchCenter,
+        radius,
+        Paint()
+          ..shader = RadialGradient(
+            colors: [
+              const Color(0xFF79B982).withValues(alpha: 0.075),
+              Colors.transparent,
+            ],
+          ).createShader(Rect.fromCircle(center: patchCenter, radius: radius)),
+      );
     }
-    for (int x = 0; x <= cols; x++) {
-      canvas.drawLine(Offset(x * cell, 0), Offset(x * cell, H), gridPaint);
+
+    // Deterministisch verteilte Grashalme; ein sehr langsames Schwingen sorgt
+    // dafür, dass die Fläche lebendig statt technisch wirkt.
+    final grassPaint = Paint()
+      ..color = const Color(0xFFA8D19C).withValues(alpha: 0.12)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = max(0.7, cell * 0.035)
+      ..strokeCap = StrokeCap.round;
+    final breeze = sin(ambient.value * pi * 2) * cell * 0.055;
+    for (var i = 0; i < 46; i++) {
+      final x = ((i * 73 + 29) % 997) / 997 * W;
+      final y = ((i * 151 + 83) % 991) / 991 * H;
+      final height = cell * (0.12 + (i % 4) * 0.035);
+      canvas.drawLine(
+        Offset(x, y),
+        Offset(x + breeze * (0.35 + (i % 3) * 0.2), y - height),
+        grassPaint,
+      );
     }
+
+    // Eine dezente Pfotenspur führt diagonal über die Wiese.
+    for (var i = 0; i < 5; i++) {
+      _paintPawPrint(
+        canvas,
+        Offset(W * (0.13 + i * 0.18), H * (0.78 - i * 0.12)),
+        cell * 0.42,
+        -0.42 + (i.isEven ? -0.08 : 0.08),
+        const Color(0xFFD8E6C8).withValues(alpha: 0.085),
+      );
+    }
+    canvas.restore();
+
+    canvas.drawRRect(
+      boardRRect.deflate(0.7),
+      Paint()
+        ..color = const Color(0xFF9DD4B1).withValues(alpha: 0.16)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.4,
+    );
 
     if (snake.isEmpty) return;
 
@@ -1407,6 +1457,43 @@ class _BoardPainter extends CustomPainter {
         old.bodyDark != bodyDark ||
         old.bodyLight != bodyLight;
   }
+}
+
+void _paintPawPrint(
+  Canvas canvas,
+  Offset center,
+  double size,
+  double angle,
+  Color color,
+) {
+  canvas.save();
+  canvas.translate(center.dx, center.dy);
+  canvas.rotate(angle);
+  final paint = Paint()..color = color;
+  canvas.drawOval(
+    Rect.fromCenter(
+      center: Offset(0, size * 0.12),
+      width: size * 0.72,
+      height: size * 0.62,
+    ),
+    paint,
+  );
+  for (final toe in const [
+    Offset(-0.31, -0.27),
+    Offset(-0.11, -0.4),
+    Offset(0.12, -0.4),
+    Offset(0.32, -0.25),
+  ]) {
+    canvas.drawOval(
+      Rect.fromCenter(
+        center: Offset(toe.dx * size, toe.dy * size),
+        width: size * 0.25,
+        height: size * 0.3,
+      ),
+      paint,
+    );
+  }
+  canvas.restore();
 }
 
 class _CatPreviewPainter extends CustomPainter {
