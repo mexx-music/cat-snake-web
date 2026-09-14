@@ -32,8 +32,11 @@ class _GamePageState extends State<GamePage>
 
   // Maus (langsam, bewegt sich selten)
   Point<int>? mouse;
-  final int _mouseStepEvery =
-      12; // je größer, desto seltener bewegt sich die Maus
+  int get _mouseStepEvery => switch (selectedLevel) {
+        GameLevel.meadow => 12,
+        GameLevel.livingRoom => 9,
+        GameLevel.garden => 7,
+      };
   int _mouseTick = 0;
 
   // Game loop: bildschirmgetaktet statt Timer, damit die Bewegung zwischen
@@ -43,12 +46,16 @@ class _GamePageState extends State<GamePage>
   double _tickElapsedMs = 0;
   int tickMs = 180;
   int score = 0;
-  int highScore = 0;
+  final Map<GameLevel, int> _levelHighScores = {
+    for (final level in GameLevel.values) level: 0,
+  };
   static const String _highScoreKey = 'cat_snake_high_score';
   SharedPreferences? _preferences;
   bool _gameStarted = false;
   bool paused = false;
   bool wrapWalls = true; // Wrap standardmäßig EIN
+  GameLevel selectedLevel = GameLevel.meadow;
+  Set<Point<int>> obstacles = {};
 
   // Audio
   AudioPlayer? _bgm;
@@ -68,16 +75,50 @@ class _GamePageState extends State<GamePage>
 
   CatSkin selectedSkin = CatSkin.red; // Standard-Skin
 
+  int get highScore => _levelHighScores[selectedLevel] ?? 0;
+
+  int get _bestEver => _levelHighScores.values.fold(0, max);
+
+  bool _isLevelUnlocked(GameLevel level) =>
+      _bestEver >= levelUnlockScore[level]!;
+
+  String _levelHighScoreKey(GameLevel level) =>
+      'cat_snake_high_score_${level.name}';
+
+  Set<Point<int>> _obstaclesFor(GameLevel level) {
+    switch (level) {
+      case GameLevel.meadow:
+        return {};
+      case GameLevel.livingRoom:
+        return {
+          for (var x = 3; x <= 5; x++)
+            for (var y = 3; y <= 4; y++) Point<int>(x, y),
+          for (var x = 16; x <= 18; x++)
+            for (var y = 10; y <= 11; y++) Point<int>(x, y),
+        };
+      case GameLevel.garden:
+        return {
+          for (var x = 4; x <= 5; x++)
+            for (var y = 3; y <= 5; y++) Point<int>(x, y),
+          for (var x = 16; x <= 18; x++)
+            for (var y = 3; y <= 4; y++) Point<int>(x, y),
+          for (var y = 11; y <= 13; y++) Point<int>(11, y),
+        };
+    }
+  }
+
   void _newGame() {
     _gameTicker?.stop();
     _lastFrameTime = null;
     _tickElapsedMs = 0;
     score = 0;
-    tickMs = 180;
+    tickMs = levelStartSpeed[selectedLevel]!;
     _gameStarted = false;
     paused = false;
+    wrapWalls = levelWrapWalls[selectedLevel]!;
     dir = Direction.right;
     _pendingDir = null;
+    obstacles = _obstaclesFor(selectedLevel);
 
     snake = [
       const Point<int>(cols ~/ 2 - 1, rows ~/ 2),
@@ -100,19 +141,30 @@ class _GamePageState extends State<GamePage>
     try {
       final preferences = await SharedPreferences.getInstance();
       _preferences = preferences;
-      final storedHighScore = preferences.getInt(_highScoreKey) ?? 0;
+      final legacyHighScore = preferences.getInt(_highScoreKey) ?? 0;
+      final storedHighScores = {
+        for (final level in GameLevel.values)
+          level: preferences.getInt(_levelHighScoreKey(level)) ??
+              (level == GameLevel.meadow ? legacyHighScore : 0),
+      };
       if (!mounted) return;
-      setState(() => highScore = max(highScore, storedHighScore));
+      setState(() {
+        for (final entry in storedHighScores.entries) {
+          _levelHighScores[entry.key] =
+              max(_levelHighScores[entry.key]!, entry.value);
+        }
+      });
     } catch (error) {
       debugPrint('Highscore konnte nicht geladen werden: $error');
     }
   }
 
-  Future<void> _saveHighScore() async {
+  Future<void> _saveHighScore(GameLevel level, int value) async {
     try {
       final preferences = _preferences ?? await SharedPreferences.getInstance();
       _preferences = preferences;
-      await preferences.setInt(_highScoreKey, highScore);
+      await preferences.setInt(_levelHighScoreKey(level), value);
+      await preferences.setInt(_highScoreKey, _bestEver);
     } catch (error) {
       debugPrint('Highscore konnte nicht gespeichert werden: $error');
     }
@@ -121,8 +173,8 @@ class _GamePageState extends State<GamePage>
   void _addPoints(int points) {
     score += points;
     if (score <= highScore) return;
-    highScore = score;
-    unawaited(_saveHighScore());
+    _levelHighScores[selectedLevel] = score;
+    unawaited(_saveHighScore(selectedLevel, score));
   }
 
   Future<void> _startGame() async {
@@ -187,7 +239,9 @@ class _GamePageState extends State<GamePage>
   }
 
   void _spawnFood() {
-    final occupied = snake.toSet()..addAll({if (mouse != null) mouse!});
+    final occupied = snake.toSet()
+      ..addAll(obstacles)
+      ..addAll({if (mouse != null) mouse!});
     while (true) {
       final p = Point<int>(_rand.nextInt(cols), _rand.nextInt(rows));
       if (!occupied.contains(p)) {
@@ -198,7 +252,9 @@ class _GamePageState extends State<GamePage>
   }
 
   void _spawnMouse() {
-    final occupied = snake.toSet()..addAll({if (food != null) food!});
+    final occupied = snake.toSet()
+      ..addAll(obstacles)
+      ..addAll({if (food != null) food!});
     while (true) {
       final p = Point<int>(_rand.nextInt(cols), _rand.nextInt(rows));
       if (!occupied.contains(p)) {
@@ -236,7 +292,9 @@ class _GamePageState extends State<GamePage>
           continue;
         }
       }
-      if (!snake.contains(cand) && (food == null || cand != food)) {
+      if (!snake.contains(cand) &&
+          !obstacles.contains(cand) &&
+          (food == null || cand != food)) {
         mouse = cand;
         return;
       }
@@ -331,7 +389,8 @@ class _GamePageState extends State<GamePage>
     }
 
     // Das letzte Schwanzfeld wird in diesem Tick frei und ist daher sicher.
-    if (snake.take(snake.length - 1).contains(next)) {
+    if (obstacles.contains(next) ||
+        snake.take(snake.length - 1).contains(next)) {
       _gameOver();
       return;
     }
@@ -391,13 +450,32 @@ class _GamePageState extends State<GamePage>
     if (soundOn) _playSfx('sfx/game_over.wav');
     unawaited(_pauseBgm());
 
+    final finishedLevel = selectedLevel;
+    final nextIndex = finishedLevel.index + 1;
+    final nextLevel = nextIndex < GameLevel.values.length
+        ? GameLevel.values[nextIndex]
+        : null;
+    final canContinue = nextLevel != null && _isLevelUnlocked(nextLevel);
+
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (ctx) => AlertDialog(
         title: const Text('Game Over'),
-        content: Text('Score: $score\nHighscore: $highScore'),
+        content: Text(
+          '${levelName[finishedLevel]}\nScore: $score\nLevel-Highscore: $highScore',
+        ),
         actions: [
+          if (canContinue)
+            FilledButton.icon(
+              onPressed: () {
+                Navigator.of(ctx).pop();
+                selectedLevel = nextLevel;
+                _newGame();
+              },
+              icon: const Icon(Icons.arrow_forward),
+              label: Text('Weiter: ${levelName[nextLevel]}'),
+            ),
           TextButton(
             onPressed: () {
               Navigator.of(ctx).pop();
@@ -478,6 +556,81 @@ class _GamePageState extends State<GamePage>
 
     if (choice != null) {
       setState(() => selectedSkin = choice);
+    }
+  }
+
+  IconData _levelIcon(GameLevel level) => switch (level) {
+        GameLevel.meadow => Icons.grass,
+        GameLevel.livingRoom => Icons.chair,
+        GameLevel.garden => Icons.local_florist,
+      };
+
+  Future<void> _pickLevel() async {
+    final choice = await showModalBottomSheet<GameLevel>(
+      context: context,
+      backgroundColor: const Color(0xFF18272D),
+      barrierColor: Colors.black54,
+      builder: (sheetContext) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 18),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                children: [
+                  const Expanded(
+                    child: Text(
+                      'Level wählen',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 20,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  Text(
+                    'Bester Score: $_bestEver',
+                    style: const TextStyle(color: Colors.amberAccent),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                height: 142,
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    for (final level in GameLevel.values)
+                      Expanded(
+                        child: Padding(
+                          padding: EdgeInsets.only(
+                            right: level == GameLevel.garden ? 0 : 8,
+                          ),
+                          child: _LevelCard(
+                            key: Key('level-card-${level.name}'),
+                            icon: _levelIcon(level),
+                            name: levelName[level]!,
+                            description: levelDescription[level]!,
+                            highScore: _levelHighScores[level]!,
+                            selected: selectedLevel == level,
+                            unlocked: _isLevelUnlocked(level),
+                            unlockScore: levelUnlockScore[level]!,
+                            onTap: () => Navigator.pop(sheetContext, level),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    if (choice != null && choice != selectedLevel) {
+      selectedLevel = choice;
+      _newGame();
     }
   }
 
@@ -745,6 +898,8 @@ class _GamePageState extends State<GamePage>
                         mouse: mouse,
                         direction: dir,
                         skin: selectedSkin,
+                        level: selectedLevel,
+                        obstacles: obstacles,
                         movement: _moveCtrl,
                         ambient: _ambientCtrl,
                         bodyDark: bodyDark,
@@ -768,6 +923,21 @@ class _GamePageState extends State<GamePage>
                                     size: 42,
                                   ),
                                   const SizedBox(height: 10),
+                                  OutlinedButton.icon(
+                                    key: const Key('level-button'),
+                                    onPressed: _pickLevel,
+                                    icon: Icon(_levelIcon(selectedLevel)),
+                                    label: Text(
+                                      'Level: ${levelName[selectedLevel]}',
+                                    ),
+                                    style: OutlinedButton.styleFrom(
+                                      foregroundColor: Colors.white,
+                                      side: const BorderSide(
+                                        color: Colors.white70,
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 8),
                                   FilledButton.icon(
                                     key: const Key('start-button'),
                                     onPressed: _startGame,
@@ -872,6 +1042,16 @@ class _GamePageState extends State<GamePage>
                                   color: Colors.amberAccent,
                                 ),
                               ),
+                              const SizedBox(width: 14),
+                              Icon(_levelIcon(selectedLevel), size: 17),
+                              const SizedBox(width: 5),
+                              Text(
+                                levelName[selectedLevel]!,
+                                key: const Key('current-level'),
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
                             ],
                           ),
                         ),
@@ -880,24 +1060,24 @@ class _GamePageState extends State<GamePage>
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           if (compact)
-                            actionButton(
-                              tooltip: wrapWalls
-                                  ? 'Rand-Warp ausschalten'
-                                  : 'Rand-Warp einschalten',
-                              icon: Icons.all_inclusive,
-                              color: wrapWalls
-                                  ? Colors.tealAccent
-                                  : Colors.white54,
-                              onPressed: () =>
-                                  setState(() => wrapWalls = !wrapWalls),
+                            Tooltip(
+                              message: wrapWalls ? 'Rand-Warp' : 'Feste Wände',
+                              child: Padding(
+                                padding:
+                                    const EdgeInsets.symmetric(horizontal: 9),
+                                child: Icon(
+                                  wrapWalls
+                                      ? Icons.all_inclusive
+                                      : Icons.crop_square,
+                                  color: Colors.tealAccent,
+                                ),
+                              ),
                             )
-                          else ...[
-                            const Text('Wrap'),
-                            Switch(
-                              value: wrapWalls,
-                              onChanged: (v) => setState(() => wrapWalls = v),
+                          else
+                            Text(
+                              wrapWalls ? 'Rand-Warp' : 'Feste Wände',
+                              style: const TextStyle(color: Colors.white70),
                             ),
-                          ],
                           actionButton(
                             tooltip: !_gameStarted
                                 ? 'Spiel zuerst starten'
@@ -1033,6 +1213,87 @@ class _GamePageState extends State<GamePage>
   }
 }
 
+class _LevelCard extends StatelessWidget {
+  final IconData icon;
+  final String name;
+  final String description;
+  final int highScore;
+  final bool selected;
+  final bool unlocked;
+  final int unlockScore;
+  final VoidCallback onTap;
+
+  const _LevelCard({
+    super.key,
+    required this.icon,
+    required this.name,
+    required this.description,
+    required this.highScore,
+    required this.selected,
+    required this.unlocked,
+    required this.unlockScore,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = selected ? Colors.tealAccent : Colors.white38;
+    return Material(
+      color: unlocked
+          ? Colors.white.withValues(alpha: selected ? 0.14 : 0.07)
+          : Colors.black.withValues(alpha: 0.18),
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        onTap: unlocked ? onTap : null,
+        borderRadius: BorderRadius.circular(14),
+        child: Container(
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: accent, width: selected ? 2 : 1),
+          ),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                unlocked ? icon : Icons.lock,
+                color: unlocked ? Colors.tealAccent : Colors.white38,
+                size: 27,
+              ),
+              const SizedBox(height: 5),
+              Text(
+                name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: unlocked ? Colors.white : Colors.white54,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 3),
+              Text(
+                unlocked ? description : 'Ab $unlockScore Punkten',
+                textAlign: TextAlign.center,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: Colors.white60, fontSize: 10.5),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Highscore: $highScore',
+                style: TextStyle(
+                  color: unlocked ? Colors.amberAccent : Colors.white30,
+                  fontSize: 10.5,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _BonusRipplePainter extends CustomPainter {
   final Offset center;
   final double t; // 0..1
@@ -1136,6 +1397,8 @@ class _BoardPainter extends CustomPainter {
   final Point<int>? mouse;
   final Direction direction;
   final CatSkin skin;
+  final GameLevel level;
+  final Set<Point<int>> obstacles;
   final Animation<double> movement;
   final Animation<double> ambient;
 
@@ -1152,6 +1415,8 @@ class _BoardPainter extends CustomPainter {
     required this.mouse,
     required this.direction,
     required this.skin,
+    required this.level,
+    required this.obstacles,
     required this.movement,
     required this.ambient,
     required this.bodyDark,
@@ -1177,76 +1442,48 @@ class _BoardPainter extends CustomPainter {
     canvas.drawRRect(boardRRect, shadow);
     canvas.restore();
 
-    // Ruhige Nachtwiese als Spielfeldgrund.
+    // Jede Spielstufe bekommt eine klar erkennbare eigene Welt.
     final boardRect = Rect.fromLTWH(0, 0, W, H);
+    final backgroundColors = switch (level) {
+      GameLevel.meadow => const [
+          Color(0xFF214B43),
+          Color(0xFF173A38),
+          Color(0xFF102B31),
+        ],
+      GameLevel.livingRoom => const [
+          Color(0xFF9A6240),
+          Color(0xFF70432F),
+          Color(0xFF4B3029),
+        ],
+      GameLevel.garden => const [
+          Color(0xFF437A45),
+          Color(0xFF285D3B),
+          Color(0xFF17443A),
+        ],
+    };
     final bgPaint = Paint()
-      ..shader = const LinearGradient(
+      ..shader = LinearGradient(
         begin: Alignment.topLeft,
         end: Alignment.bottomRight,
-        colors: [Color(0xFF214B43), Color(0xFF173A38), Color(0xFF102B31)],
+        colors: backgroundColors,
       ).createShader(boardRect);
     canvas.drawRRect(boardRRect, bgPaint);
 
     canvas.save();
     canvas.clipRRect(boardRRect);
-
-    // Weiche Licht- und Moosflecken geben Tiefe, ohne vom Spiel abzulenken.
-    for (final patch in const [
-      (0.18, 0.2, 0.24),
-      (0.78, 0.28, 0.3),
-      (0.42, 0.78, 0.27),
-      (0.9, 0.82, 0.18),
-    ]) {
-      final patchCenter = Offset(W * patch.$1, H * patch.$2);
-      final radius = min(W, H) * patch.$3;
-      canvas.drawCircle(
-        patchCenter,
-        radius,
-        Paint()
-          ..shader = RadialGradient(
-            colors: [
-              const Color(0xFF79B982).withValues(alpha: 0.075),
-              Colors.transparent,
-            ],
-          ).createShader(Rect.fromCircle(center: patchCenter, radius: radius)),
-      );
-    }
-
-    // Deterministisch verteilte Grashalme; ein sehr langsames Schwingen sorgt
-    // dafür, dass die Fläche lebendig statt technisch wirkt.
-    final grassPaint = Paint()
-      ..color = const Color(0xFFA8D19C).withValues(alpha: 0.12)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = max(0.7, cell * 0.035)
-      ..strokeCap = StrokeCap.round;
-    final breeze = sin(ambient.value * pi * 2) * cell * 0.055;
-    for (var i = 0; i < 46; i++) {
-      final x = ((i * 73 + 29) % 997) / 997 * W;
-      final y = ((i * 151 + 83) % 991) / 991 * H;
-      final height = cell * (0.12 + (i % 4) * 0.035);
-      canvas.drawLine(
-        Offset(x, y),
-        Offset(x + breeze * (0.35 + (i % 3) * 0.2), y - height),
-        grassPaint,
-      );
-    }
-
-    // Eine dezente Pfotenspur führt diagonal über die Wiese.
-    for (var i = 0; i < 5; i++) {
-      _paintPawPrint(
-        canvas,
-        Offset(W * (0.13 + i * 0.18), H * (0.78 - i * 0.12)),
-        cell * 0.42,
-        -0.42 + (i.isEven ? -0.08 : 0.08),
-        const Color(0xFFD8E6C8).withValues(alpha: 0.085),
-      );
-    }
+    _paintLevelDecorations(canvas, W, H);
+    _paintObstacles(canvas);
     canvas.restore();
 
+    final borderColor = switch (level) {
+      GameLevel.meadow => const Color(0xFF9DD4B1),
+      GameLevel.livingRoom => const Color(0xFFFFD09B),
+      GameLevel.garden => const Color(0xFFB9E77D),
+    };
     canvas.drawRRect(
       boardRRect.deflate(0.7),
       Paint()
-        ..color = const Color(0xFF9DD4B1).withValues(alpha: 0.16)
+        ..color = borderColor.withValues(alpha: 0.22)
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1.4,
     );
@@ -1496,6 +1733,202 @@ class _BoardPainter extends CustomPainter {
     canvas.restore();
   }
 
+  void _paintLevelDecorations(Canvas canvas, double width, double height) {
+    switch (level) {
+      case GameLevel.meadow:
+        for (final patch in const [
+          (0.18, 0.2, 0.24),
+          (0.78, 0.28, 0.3),
+          (0.42, 0.78, 0.27),
+          (0.9, 0.82, 0.18),
+        ]) {
+          final center = Offset(width * patch.$1, height * patch.$2);
+          final radius = min(width, height) * patch.$3;
+          canvas.drawCircle(
+            center,
+            radius,
+            Paint()
+              ..shader = RadialGradient(
+                colors: [
+                  const Color(0xFF79B982).withValues(alpha: 0.075),
+                  Colors.transparent,
+                ],
+              ).createShader(Rect.fromCircle(center: center, radius: radius)),
+          );
+        }
+        _paintGrass(canvas, width, height, 46, 0.12);
+        for (var i = 0; i < 5; i++) {
+          _paintPawPrint(
+            canvas,
+            Offset(width * (0.13 + i * 0.18), height * (0.78 - i * 0.12)),
+            cell * 0.42,
+            -0.42 + (i.isEven ? -0.08 : 0.08),
+            const Color(0xFFD8E6C8).withValues(alpha: 0.085),
+          );
+        }
+        break;
+      case GameLevel.livingRoom:
+        final seamPaint = Paint()
+          ..color = const Color(0xFF3C251F).withValues(alpha: 0.27)
+          ..strokeWidth = max(0.8, cell * 0.045);
+        for (var y = cell * 1.8; y < height; y += cell * 2.2) {
+          canvas.drawLine(Offset(0, y), Offset(width, y), seamPaint);
+        }
+        for (var row = 0; row < 8; row++) {
+          final y = row * cell * 2.2;
+          final offset = row.isEven ? cell * 3.2 : cell * 8.7;
+          for (var x = offset; x < width; x += cell * 9.5) {
+            canvas.drawLine(
+              Offset(x, y),
+              Offset(x, min(height, y + cell * 2.2)),
+              seamPaint,
+            );
+          }
+        }
+        final rugRect = Rect.fromCenter(
+          center: Offset(width * 0.52, height * 0.48),
+          width: width * 0.34,
+          height: height * 0.34,
+        );
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(rugRect, Radius.circular(cell * 0.7)),
+          Paint()..color = const Color(0xFF2C7B78).withValues(alpha: 0.2),
+        );
+        _paintPawPrint(
+          canvas,
+          Offset(width * 0.84, height * 0.22),
+          cell * 0.55,
+          0.35,
+          Colors.white.withValues(alpha: 0.08),
+        );
+        break;
+      case GameLevel.garden:
+        _paintGrass(canvas, width, height, 62, 0.16);
+        final flowerColors = [
+          const Color(0xFFFFD166),
+          const Color(0xFFFF87A3),
+          const Color(0xFFBCA7FF),
+        ];
+        for (var i = 0; i < 22; i++) {
+          final center = Offset(
+            ((i * 83 + 17) % 991) / 991 * width,
+            ((i * 137 + 41) % 983) / 983 * height,
+          );
+          canvas.drawCircle(
+            center,
+            cell * 0.07,
+            Paint()
+              ..color =
+                  flowerColors[i % flowerColors.length].withValues(alpha: 0.3),
+          );
+        }
+        break;
+    }
+  }
+
+  void _paintGrass(
+    Canvas canvas,
+    double width,
+    double height,
+    int count,
+    double opacity,
+  ) {
+    final grassPaint = Paint()
+      ..color = const Color(0xFFA8D19C).withValues(alpha: opacity)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = max(0.7, cell * 0.035)
+      ..strokeCap = StrokeCap.round;
+    final breeze = sin(ambient.value * pi * 2) * cell * 0.055;
+    for (var i = 0; i < count; i++) {
+      final x = ((i * 73 + 29) % 997) / 997 * width;
+      final y = ((i * 151 + 83) % 991) / 991 * height;
+      final bladeHeight = cell * (0.12 + (i % 4) * 0.035);
+      canvas.drawLine(
+        Offset(x, y),
+        Offset(x + breeze * (0.35 + (i % 3) * 0.2), y - bladeHeight),
+        grassPaint,
+      );
+    }
+  }
+
+  void _paintObstacles(Canvas canvas) {
+    for (final obstacle in obstacles) {
+      final rect = Rect.fromLTWH(
+        obstacle.x * cell + cell * 0.08,
+        obstacle.y * cell + cell * 0.08,
+        cell * 0.84,
+        cell * 0.84,
+      );
+      final shadowRect = rect.shift(Offset(0, cell * 0.08));
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(shadowRect, Radius.circular(cell * 0.18)),
+        Paint()..color = Colors.black.withValues(alpha: 0.23),
+      );
+
+      if (level == GameLevel.livingRoom) {
+        final isSofa = obstacle.y < 8;
+        final color =
+            isSofa ? const Color(0xFFCB6F5C) : const Color(0xFFC4935B);
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(rect, Radius.circular(cell * 0.2)),
+          Paint()..color = color,
+        );
+        canvas.drawLine(
+          rect.topLeft + Offset(cell * 0.13, cell * 0.17),
+          rect.topRight + Offset(-cell * 0.13, cell * 0.17),
+          Paint()
+            ..color = Colors.white.withValues(alpha: 0.22)
+            ..strokeWidth = max(1, cell * 0.06)
+            ..strokeCap = StrokeCap.round,
+        );
+      } else if (level == GameLevel.garden) {
+        if (obstacle.x >= 16) {
+          canvas.drawOval(
+            rect,
+            Paint()..color = const Color(0xFF55AFC4),
+          );
+          canvas.drawArc(
+            rect.deflate(cell * 0.18),
+            -0.7,
+            2.2,
+            false,
+            Paint()
+              ..color = Colors.white.withValues(alpha: 0.28)
+              ..style = PaintingStyle.stroke
+              ..strokeWidth = max(1, cell * 0.06),
+          );
+        } else if (obstacle.x <= 5) {
+          canvas.drawRRect(
+            RRect.fromRectAndRadius(rect, Radius.circular(cell * 0.22)),
+            Paint()..color = const Color(0xFF704A31),
+          );
+          canvas.drawCircle(
+            rect.center,
+            cell * 0.18,
+            Paint()..color = const Color(0xFFFFC857),
+          );
+          for (final angle in [0.0, pi / 2, pi, pi * 1.5]) {
+            canvas.drawCircle(
+              rect.center + Offset(cos(angle), sin(angle)) * cell * 0.19,
+              cell * 0.12,
+              Paint()..color = const Color(0xFFFF7D9B),
+            );
+          }
+        } else {
+          canvas.drawOval(
+            rect,
+            Paint()..color = const Color(0xFF83958A),
+          );
+          canvas.drawCircle(
+            rect.center - Offset(cell * 0.13, cell * 0.1),
+            cell * 0.12,
+            Paint()..color = Colors.white.withValues(alpha: 0.17),
+          );
+        }
+      }
+    }
+  }
+
   @override
   bool shouldRepaint(covariant _BoardPainter old) {
     return old.snake != snake ||
@@ -1504,6 +1937,8 @@ class _BoardPainter extends CustomPainter {
         old.mouse != mouse ||
         old.direction != direction ||
         old.skin != skin ||
+        old.level != level ||
+        old.obstacles != obstacles ||
         old.cell != cell ||
         old.cols != cols ||
         old.rows != rows ||

@@ -28,6 +28,8 @@ void main() {
     expect(find.text('Steuerung: Pfeiltasten'), findsOneWidget);
     expect(find.text('Highscore: 120'), findsOneWidget);
     expect(find.byKey(const Key('start-button')), findsOneWidget);
+    expect(find.byKey(const Key('level-button')), findsOneWidget);
+    expect(find.text('Level: Wiese'), findsOneWidget);
 
     await tester.pump(const Duration(milliseconds: 400));
     expect(find.byKey(const Key('start-button')), findsOneWidget);
@@ -35,6 +37,25 @@ void main() {
     final boardCenter = tester.getCenter(find.byKey(const Key('game-board')));
     final hintCenter = tester.getCenter(find.byKey(const Key('keyboard-hint')));
     expect(hintCenter.dx, greaterThan(boardCenter.dx));
+
+    await tester.tap(find.byKey(const Key('level-button')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.text('Level wählen'), findsOneWidget);
+    expect(find.text('Ab 250 Punkten'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('level-card-livingRoom')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.text('Level: Wohnzimmer'), findsOneWidget);
+    expect(find.text('Highscore: 0'), findsOneWidget);
+
+    final levelBoardPaint = tester
+        .widgetList<CustomPaint>(find.byType(CustomPaint))
+        .singleWhere(
+            (paint) => paint.painter.runtimeType.toString() == '_BoardPainter');
+    final obstacles =
+        (levelBoardPaint.painter as dynamic).obstacles as Set<Object>;
+    expect(obstacles, isNotEmpty);
 
     await tester.tap(find.byTooltip('Sound an/aus'));
     await tester.tap(find.byKey(const Key('start-button')));
@@ -86,6 +107,13 @@ void main() {
     expect(find.byKey(const Key('dpad')), findsOneWidget);
     expect(find.byKey(const Key('keyboard-hint')), findsNothing);
     expect(find.text('Highscore: 0'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('level-button')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.text('Ab 100 Punkten'), findsOneWidget);
+    expect(find.text('Ab 250 Punkten'), findsOneWidget);
+    expect(find.byIcon(Icons.lock), findsNWidgets(2));
 
     debugDefaultTargetPlatformOverride = null;
     await tester.pumpWidget(const SizedBox.shrink());
