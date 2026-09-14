@@ -1,6 +1,7 @@
 import 'dart:ui'; // für BackdropFilter / ImageFilter.blur
 import 'dart:async';
 import 'dart:math';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
@@ -25,7 +26,6 @@ class _GamePageState extends State<GamePage>
   List<Point<int>> snake = [];
   List<Point<int>> _previousSnake = [];
   Direction dir = Direction.right;
-  Direction _previousDirection = Direction.right;
   Direction? _pendingDir;
   Point<int>? food;
 
@@ -55,10 +55,12 @@ class _GamePageState extends State<GamePage>
 
   // Bonus-Animation (verlängert + Fade)
   late final AnimationController _moveCtrl;
+  late final AnimationController _ambientCtrl;
   late final AnimationController _bonusCtrl;
   late final Animation<double> _bonusT;
   late final Animation<double> _bonusOpacity;
   Point<int>? _bonusAt; // Grid-Position des Effekts
+  bool _isMouseBonusFx = false;
 
   CatSkin selectedSkin = CatSkin.red; // Standard-Skin
   ui.Image? _headImage; // Kopf-Bild
@@ -177,7 +179,6 @@ class _GamePageState extends State<GamePage>
     _gameStarted = false;
     paused = false;
     dir = Direction.right;
-    _previousDirection = Direction.right;
     _pendingDir = null;
 
     snake = [
@@ -358,14 +359,21 @@ class _GamePageState extends State<GamePage>
 
   void _showMouseBonus(Point<int> at) {
     _bonusAt = at;
+    _isMouseBonusFx = true;
     HapticFeedback.mediumImpact();
+    _bonusCtrl.forward(from: 0);
+  }
+
+  void _showFoodFx(Point<int> at) {
+    _bonusAt = at;
+    _isMouseBonusFx = false;
+    HapticFeedback.lightImpact();
     _bonusCtrl.forward(from: 0);
   }
 
   void _tick() {
     if (!mounted || !_gameStarted || paused) return;
 
-    _previousDirection = dir;
     dir = _pendingDir ?? dir;
     _pendingDir = null;
 
@@ -416,6 +424,7 @@ class _GamePageState extends State<GamePage>
         if (tickMs > 70 && score % 30 == 0) {
           tickMs -= 10;
         }
+        _showFoodFx(next);
         if (soundOn) _playSfx('sfx/eat.wav');
         _spawnFood();
       } else if (ateMouse) {
@@ -558,6 +567,10 @@ class _GamePageState extends State<GamePage>
       vsync: this,
       value: 1,
     );
+    _ambientCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1600),
+    )..repeat();
     _gameTicker = createTicker(_onGameFrame);
 
     // Bonus-Animation einrichten
@@ -592,6 +605,7 @@ class _GamePageState extends State<GamePage>
     WidgetsBinding.instance.removeObserver(this);
     _gameTicker?.dispose();
     _moveCtrl.dispose();
+    _ambientCtrl.dispose();
     _bonusCtrl.dispose();
     _bgmSub?.cancel();
     for (final player in [_bgm, _sfxEat, _sfxMouse, _sfxOver]) {
@@ -724,19 +738,31 @@ class _GamePageState extends State<GamePage>
                     Expanded(
                       child: LayoutBuilder(
                         builder: (context, constraints) {
+                          final useKeyboardControls =
+                              switch (defaultTargetPlatform) {
+                            TargetPlatform.macOS ||
+                            TargetPlatform.windows ||
+                            TargetPlatform.linux =>
+                              true,
+                            _ => false,
+                          };
                           final useSideControls = constraints.maxWidth >= 620 &&
                               constraints.maxWidth >
                                   constraints.maxHeight * 1.35;
                           final board = _buildBoard(bodyDark, bodyLight);
                           final controls = Center(
-                            child: _DPad(
-                              key: const Key('dpad'),
-                              buttonSize: useSideControls ? 54 : 50,
-                              onUp: () => _changeDir(Direction.up),
-                              onDown: () => _changeDir(Direction.down),
-                              onLeft: () => _changeDir(Direction.left),
-                              onRight: () => _changeDir(Direction.right),
-                            ),
+                            child: useKeyboardControls
+                                ? const _KeyboardHint(
+                                    key: Key('keyboard-hint'),
+                                  )
+                                : _DPad(
+                                    key: const Key('dpad'),
+                                    buttonSize: useSideControls ? 54 : 50,
+                                    onUp: () => _changeDir(Direction.up),
+                                    onDown: () => _changeDir(Direction.down),
+                                    onLeft: () => _changeDir(Direction.left),
+                                    onRight: () => _changeDir(Direction.right),
+                                  ),
                           );
 
                           if (useSideControls) {
@@ -798,10 +824,9 @@ class _GamePageState extends State<GamePage>
                         previousSnake: _previousSnake,
                         food: food,
                         mouse: mouse,
-                        direction: dir,
-                        previousDirection: _previousDirection,
                         skin: selectedSkin,
                         movement: _moveCtrl,
+                        ambient: _ambientCtrl,
                         bodyDark: bodyDark,
                         bodyLight: bodyLight,
                         headImage: _headImage,
@@ -1015,38 +1040,48 @@ class _GamePageState extends State<GamePage>
           children: [
             CustomPaint(
               painter: _BonusRipplePainter(
-                  center: center, t: t, cell: cell, fade: fade),
+                center: center,
+                t: t,
+                cell: cell,
+                fade: fade,
+                isMouseBonus: _isMouseBonusFx,
+              ),
               size: Size.infinite,
             ),
-            Positioned(
-              left: center.dx - 90,
-              top: center.dy - 22 - (t * 36),
-              child: Opacity(
-                opacity: fade,
-                child: Transform.scale(
-                  scale: 0.9 + 0.3 * (1 - t),
-                  child: Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: Colors.teal,
-                      borderRadius: BorderRadius.circular(20),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.3),
-                          blurRadius: 10,
+            if (_isMouseBonusFx)
+              Positioned(
+                left: center.dx - 90,
+                top: center.dy - 22 - (t * 36),
+                child: Opacity(
+                  opacity: fade,
+                  child: Transform.scale(
+                    scale: 0.9 + 0.3 * (1 - t),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 8,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.teal,
+                        borderRadius: BorderRadius.circular(20),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.3),
+                            blurRadius: 10,
+                          ),
+                        ],
+                      ),
+                      child: const Text(
+                        'MOUSE BONUS +30 🧀',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w700,
                         ),
-                      ],
-                    ),
-                    child: const Text(
-                      'MOUSE BONUS +30 🧀',
-                      style: TextStyle(
-                          color: Colors.white, fontWeight: FontWeight.w700),
+                      ),
                     ),
                   ),
                 ),
               ),
-            ),
           ],
         );
       },
@@ -1065,12 +1100,14 @@ class _BonusRipplePainter extends CustomPainter {
   final double t; // 0..1
   final double cell;
   final double fade; // 0..1
+  final bool isMouseBonus;
 
   _BonusRipplePainter({
     required this.center,
     required this.t,
     required this.cell,
     required this.fade,
+    required this.isMouseBonus,
   });
 
   @override
@@ -1095,9 +1132,50 @@ class _BonusRipplePainter extends CustomPainter {
       ..strokeWidth = 1.5
       ..color = Colors.tealAccent.withValues(alpha: 0.25 * fade);
 
-    canvas.drawCircle(center, r1, p1);
-    canvas.drawCircle(center, r2, p2);
-    canvas.drawCircle(center, r3, p3);
+    if (isMouseBonus) {
+      canvas.drawCircle(center, r1, p1);
+      canvas.drawCircle(center, r2, p2);
+      canvas.drawCircle(center, r3, p3);
+    }
+
+    // Sterne und Fellfunken fliegen beim Fressen vom Trefferpunkt weg.
+    final sparklePaint = Paint()
+      ..style = PaintingStyle.fill
+      ..color = Colors.amberAccent.withValues(alpha: fade);
+    final furPaint = Paint()
+      ..style = PaintingStyle.fill
+      ..color = const Color(0xFFFFD6A0).withValues(alpha: fade * 0.85);
+    for (var i = 0; i < 9; i++) {
+      final angle = (i / 9) * pi * 2 + 0.35;
+      final distance = cell * (0.22 + t * (0.75 + (i % 3) * 0.14));
+      final particleCenter = center +
+          Offset(
+            cos(angle) * distance,
+            sin(angle) * distance - t * cell * 0.18,
+          );
+      final radius = cell * (i.isEven ? 0.075 : 0.045) * (1 - t * 0.35);
+      canvas.drawCircle(
+        particleCenter,
+        radius,
+        i.isEven ? sparklePaint : furPaint,
+      );
+      if (i.isEven) {
+        final rayPaint = Paint()
+          ..color = sparklePaint.color
+          ..strokeWidth = max(1, radius * 0.45)
+          ..strokeCap = StrokeCap.round;
+        canvas.drawLine(
+          particleCenter - Offset(radius * 1.8, 0),
+          particleCenter + Offset(radius * 1.8, 0),
+          rayPaint,
+        );
+        canvas.drawLine(
+          particleCenter - Offset(0, radius * 1.8),
+          particleCenter + Offset(0, radius * 1.8),
+          rayPaint,
+        );
+      }
+    }
   }
 
   @override
@@ -1105,7 +1183,8 @@ class _BonusRipplePainter extends CustomPainter {
     return old.t != t ||
         old.center != center ||
         old.cell != cell ||
-        old.fade != fade;
+        old.fade != fade ||
+        old.isMouseBonus != isMouseBonus;
   }
 }
 
@@ -1117,10 +1196,9 @@ class _BoardPainter extends CustomPainter {
   final List<Point<int>> previousSnake;
   final Point<int>? food;
   final Point<int>? mouse;
-  final Direction direction;
-  final Direction previousDirection;
   final CatSkin skin;
   final Animation<double> movement;
+  final Animation<double> ambient;
 
   final Color bodyDark;
   final Color bodyLight;
@@ -1134,14 +1212,13 @@ class _BoardPainter extends CustomPainter {
     required this.previousSnake,
     required this.food,
     required this.mouse,
-    required this.direction,
-    required this.previousDirection,
     required this.skin,
     required this.movement,
+    required this.ambient,
     required this.bodyDark,
     required this.bodyLight,
     required this.headImage,
-  }) : super(repaint: movement);
+  }) : super(repaint: Listenable.merge([movement, ambient]));
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -1289,7 +1366,8 @@ class _BoardPainter extends CustomPainter {
       final distance = max(delta.distance, 0.001);
       final along = delta / distance;
       final sideways = Offset(-along.dy, along.dx);
-      final bend = sin(snake.length * 1.7) * cell * 0.12;
+      final bend =
+          sin(ambient.value * pi * 2 + snake.length * 1.7) * cell * 0.18;
       tailCenters.add(tail + along * cell * 0.32 + sideways * bend);
     }
 
@@ -1393,7 +1471,17 @@ class _BoardPainter extends CustomPainter {
     // Futter (🐟)
     if (food != null) {
       final fCenter = Offset((food!.x + 0.5) * cell, (food!.y + 0.5) * cell);
-      _drawEmoji(canvas, '🐟', fCenter, cell * 0.9);
+      final fishPhase = ambient.value * pi * 2 + food!.x * 0.7 + food!.y * 0.35;
+      canvas.save();
+      canvas.translate(
+        fCenter.dx,
+        fCenter.dy + sin(fishPhase) * cell * 0.08,
+      );
+      canvas.rotate(sin(fishPhase) * 0.07);
+      final fishScale = 1 + cos(fishPhase) * 0.025;
+      canvas.scale(fishScale, fishScale);
+      _drawEmoji(canvas, '🐟', Offset.zero, cell * 0.9);
+      canvas.restore();
     }
 
     // Maus (🐭)
@@ -1406,17 +1494,6 @@ class _BoardPainter extends CustomPainter {
     if (snake.isNotEmpty) {
       final headCenter = wrap(centers.first);
       final headSize = cell * 1.02;
-      double angleFor(Direction value) => switch (value) {
-            Direction.right => 0.0,
-            Direction.down => pi / 2,
-            Direction.left => pi,
-            Direction.up => -pi / 2,
-          };
-      final previousAngle = angleFor(previousDirection);
-      final targetAngle = angleFor(direction);
-      var angleDelta = (targetAngle - previousAngle + pi) % (2 * pi) - pi;
-      if (angleDelta == -pi) angleDelta = pi;
-      final angle = previousAngle + angleDelta * moveT;
 
       canvas.drawCircle(
         headCenter + Offset(0, cell * 0.08),
@@ -1425,7 +1502,6 @@ class _BoardPainter extends CustomPainter {
       );
       canvas.save();
       canvas.translate(headCenter.dx, headCenter.dy);
-      canvas.rotate(angle);
       final dst = Rect.fromCenter(
         center: Offset.zero,
         width: headSize,
@@ -1465,8 +1541,6 @@ class _BoardPainter extends CustomPainter {
         old.previousSnake != previousSnake ||
         old.food != food ||
         old.mouse != mouse ||
-        old.direction != direction ||
-        old.previousDirection != previousDirection ||
         old.skin != skin ||
         old.cell != cell ||
         old.cols != cols ||
@@ -1474,6 +1548,65 @@ class _BoardPainter extends CustomPainter {
         old.bodyDark != bodyDark ||
         old.bodyLight != bodyLight ||
         old.headImage != headImage; // NEU
+  }
+}
+
+class _KeyboardHint extends StatelessWidget {
+  const _KeyboardHint({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    Widget keyCap(IconData icon) => Container(
+          width: 34,
+          height: 30,
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: 0.09),
+            borderRadius: BorderRadius.circular(7),
+            border: Border.all(color: Colors.white24),
+          ),
+          child: Icon(icon, size: 20, color: Colors.white70),
+        );
+
+    return Semantics(
+      label: 'Steuerung mit den Pfeiltasten',
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        decoration: BoxDecoration(
+          color: Colors.black.withValues(alpha: 0.2),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: Colors.white12),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [keyCap(Icons.keyboard_arrow_up)],
+            ),
+            const SizedBox(height: 4),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                keyCap(Icons.keyboard_arrow_left),
+                const SizedBox(width: 4),
+                keyCap(Icons.keyboard_arrow_down),
+                const SizedBox(width: 4),
+                keyCap(Icons.keyboard_arrow_right),
+              ],
+            ),
+            const SizedBox(height: 10),
+            const Text(
+              'Steuerung: Pfeiltasten',
+              style: TextStyle(
+                color: Colors.white70,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 
