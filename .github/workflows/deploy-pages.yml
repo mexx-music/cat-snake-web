@@ -22,7 +22,7 @@ jobs:
 
       - run: flutter pub get
 
-      - run: flutter build web --release --base-href /cat-snake-web/
+      - run: flutter build web --release --base-href /cat-snake-web/ --pwa-strategy=none
 
       - uses: actions/upload-pages-artifact@v3
         with:

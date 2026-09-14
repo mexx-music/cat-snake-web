@@ -102,7 +102,37 @@
       <source srcset="splash/img/dark-1x.png 1x, splash/img/dark-2x.png 2x, splash/img/dark-3x.png 3x, splash/img/dark-4x.png 4x" media="(prefers-color-scheme: dark)">
       <img class="center" aria-hidden="true" src="splash/img/light-1x.png" alt="">
   </picture>
-  <script src="flutter_bootstrap.js" async=""></script>
+  <script>
+    async function bootCatSnake() {
+      const version = new URLSearchParams(window.location.search).get('v') ||
+        Date.now().toString();
+      const hadController = 'serviceWorker' in navigator &&
+        navigator.serviceWorker.controller !== null;
+
+      if ('serviceWorker' in navigator) {
+        const registrations = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(registrations.map((registration) => registration.unregister()));
+      }
+      if ('caches' in window) {
+        const cacheNames = await caches.keys();
+        await Promise.all(cacheNames.map((name) => caches.delete(name)));
+      }
+
+      const resetKey = `cat-snake-cache-reset-${version}`;
+      if (hadController && sessionStorage.getItem(resetKey) !== 'done') {
+        sessionStorage.setItem(resetKey, 'done');
+        window.location.reload();
+        return;
+      }
+
+      const bootstrap = document.createElement('script');
+      bootstrap.src = `flutter_bootstrap.js?v=${encodeURIComponent(version)}`;
+      bootstrap.async = true;
+      document.body.appendChild(bootstrap);
+    }
+
+    bootCatSnake();
+  </script>
 
 
 </body></html>
