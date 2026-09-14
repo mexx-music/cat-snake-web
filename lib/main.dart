@@ -1,6 +1,5 @@
 // lib/main.dart
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'screens/game_page.dart';
 
@@ -22,7 +21,6 @@ Future<void> main() async {
     ),
   );
 
-  await SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
   runApp(const CatSnakeApp());
 }
 

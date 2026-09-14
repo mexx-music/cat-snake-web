@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'dart:ui' as ui;
-import 'package:flutter/services.dart' show rootBundle;
 import '../constants/game_constants.dart';
 
 class GamePage extends StatefulWidget {
@@ -16,19 +15,21 @@ class GamePage extends StatefulWidget {
 }
 
 class _GamePageState extends State<GamePage>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   // Spielfeld
-  static const int rows = 22;
-  static const int cols = 16;
+  static const int rows = 16;
+  static const int cols = 22;
 
   final Random _rand = Random();
   List<Point<int>> snake = [];
   Direction dir = Direction.right;
+  Direction? _pendingDir;
   Point<int>? food;
 
   // Maus (langsam, bewegt sich selten)
   Point<int>? mouse;
-  int _mouseStepEvery = 12; // je größer, desto seltener bewegt sich die Maus
+  final int _mouseStepEvery =
+      12; // je größer, desto seltener bewegt sich die Maus
   int _mouseTick = 0;
 
   // Game loop
@@ -39,10 +40,10 @@ class _GamePageState extends State<GamePage>
   bool wrapWalls = true; // Wrap standardmäßig EIN
 
   // Audio
-  late AudioPlayer _bgm; // wird in _initAudio erstellt
-  final AudioPlayer _sfxEat = AudioPlayer();
-  final AudioPlayer _sfxMouse = AudioPlayer();
-  final AudioPlayer _sfxOver = AudioPlayer();
+  AudioPlayer? _bgm;
+  AudioPlayer? _sfxEat;
+  AudioPlayer? _sfxMouse;
+  AudioPlayer? _sfxOver;
   bool soundOn = true;
 
   // Bonus-Animation (verlängert + Fade)
@@ -159,17 +160,18 @@ class _GamePageState extends State<GamePage>
     }
   }
 
-  void _newGame() async {
+  void _newGame({bool startAudio = false}) async {
     _timer?.cancel();
     score = 0;
     tickMs = 180;
     paused = false;
     dir = Direction.right;
+    _pendingDir = null;
 
     snake = [
-      Point<int>(cols ~/ 2 - 1, rows ~/ 2),
-      Point<int>(cols ~/ 2 - 2, rows ~/ 2),
-      Point<int>(cols ~/ 2 - 3, rows ~/ 2),
+      const Point<int>(cols ~/ 2 - 1, rows ~/ 2),
+      const Point<int>(cols ~/ 2 - 2, rows ~/ 2),
+      const Point<int>(cols ~/ 2 - 3, rows ~/ 2),
     ];
 
     mouse = null;
@@ -179,8 +181,7 @@ class _GamePageState extends State<GamePage>
     _spawnMouse();
     _startTimer();
 
-    // WICHTIG: nur auf User-Geste hin (dieser Button-Click) starten
-    await _startBgmIfAllowed();
+    if (startAudio) await _startBgmIfAllowed();
 
     setState(() {});
   }
@@ -195,7 +196,7 @@ class _GamePageState extends State<GamePage>
     if (!soundOn) return;
 
     if (paused) {
-      await _bgm.pause();
+      await _pauseBgm();
     } else {
       await _startBgmIfAllowed();
     }
@@ -247,8 +248,9 @@ class _GamePageState extends State<GamePage>
       if (wrapWalls) {
         cand = _wrapPoint(cand);
       } else {
-        if (cand.x < 0 || cand.x >= cols || cand.y < 0 || cand.y >= rows)
+        if (cand.x < 0 || cand.x >= cols || cand.y < 0 || cand.y >= rows) {
           continue;
+        }
       }
       if (!snake.contains(cand) && (food == null || cand != food)) {
         mouse = cand;
@@ -259,13 +261,34 @@ class _GamePageState extends State<GamePage>
   }
 
   void _changeDir(Direction next) {
+    // Pro Tick genau eine Richtungsänderung puffern. So kann ein schneller
+    // diagonaler Swipe die Katze nicht versehentlich in den Hals drehen.
+    if (_pendingDir != null) return;
     if ((dir == Direction.up && next == Direction.down) ||
         (dir == Direction.down && next == Direction.up) ||
         (dir == Direction.left && next == Direction.right) ||
         (dir == Direction.right && next == Direction.left)) {
       return;
     }
-    setState(() => dir = next);
+    setState(() => _pendingDir = next);
+  }
+
+  KeyEventResult _handleKeyEvent(FocusNode node, KeyEvent event) {
+    if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
+      return KeyEventResult.ignored;
+    }
+
+    final next = switch (event.logicalKey) {
+      LogicalKeyboardKey.arrowUp => Direction.up,
+      LogicalKeyboardKey.arrowDown => Direction.down,
+      LogicalKeyboardKey.arrowLeft => Direction.left,
+      LogicalKeyboardKey.arrowRight => Direction.right,
+      _ => null,
+    };
+
+    if (next == null) return KeyEventResult.ignored;
+    _changeDir(next);
+    return KeyEventResult.handled;
   }
 
   void _showMouseBonus(Point<int> at) {
@@ -276,6 +299,9 @@ class _GamePageState extends State<GamePage>
 
   void _tick() {
     if (!mounted || paused) return;
+
+    dir = _pendingDir ?? dir;
+    _pendingDir = null;
 
     final head = snake.first;
     Point<int> next;
@@ -303,7 +329,8 @@ class _GamePageState extends State<GamePage>
       }
     }
 
-    if (snake.contains(next)) {
+    // Das letzte Schwanzfeld wird in diesem Tick frei und ist daher sicher.
+    if (snake.take(snake.length - 1).contains(next)) {
       _gameOver();
       return;
     }
@@ -322,11 +349,11 @@ class _GamePageState extends State<GamePage>
           tickMs -= 10;
           _startTimer();
         }
-        if (soundOn) _sfxEat.play(AssetSource('sfx/eat.wav'));
+        if (soundOn) _playSfx('sfx/eat.wav');
         _spawnFood();
       } else if (ateMouse) {
         score += 30; // Bonus
-        if (soundOn) _sfxMouse.play(AssetSource('sfx/mouse.wav'));
+        if (soundOn) _playSfx('sfx/mouse.wav');
         if (tickMs > 60) {
           tickMs -= 5;
           _startTimer();
@@ -348,7 +375,7 @@ class _GamePageState extends State<GamePage>
       // 4) Sicherheit: falls Maus nach Bewegung unter dem Kopf landet
       if (mouse != null && snake.first == mouse) {
         score += 30;
-        if (soundOn) _sfxMouse.play(AssetSource('sfx/mouse.wav'));
+        if (soundOn) _playSfx('sfx/mouse.wav');
         _showMouseBonus(snake.first);
         _spawnMouse();
       }
@@ -357,8 +384,8 @@ class _GamePageState extends State<GamePage>
 
   void _gameOver() {
     _timer?.cancel();
-    if (soundOn) _sfxOver.play(AssetSource('sfx/game_over.wav'));
-    _bgm.pause();
+    if (soundOn) _playSfx('sfx/game_over.wav');
+    unawaited(_pauseBgm());
 
     showDialog(
       context: context,
@@ -370,7 +397,7 @@ class _GamePageState extends State<GamePage>
           TextButton(
             onPressed: () {
               Navigator.of(ctx).pop();
-              _newGame();
+              _newGame(startAudio: true);
             },
             child: const Text('Neu starten'),
           ),
@@ -395,24 +422,10 @@ class _GamePageState extends State<GamePage>
     }
   }
 
-  Future<void> _verifyAssets() async {
-    for (final p in const [
-      'assets/cats/black.png',
-      'assets/cats/red.png',
-      'assets/cats/tux.png', // wichtig!
-    ]) {
-      try {
-        await rootBundle.load(p);
-      } catch (e) {
-        debugPrint('Asset fehlt: $p -> $e');
-      }
-    }
-  }
-
   Future<void> _pickSkin() async {
     final choice = await showModalBottomSheet<CatSkin?>(
       context: context,
-      backgroundColor: Colors.black.withOpacity(0.7),
+      backgroundColor: Colors.black.withValues(alpha: 0.7),
       barrierColor: Colors.black54,
       builder: (_) {
         Widget tile(String label, CatSkin skin, String asset) {
@@ -471,6 +484,7 @@ class _GamePageState extends State<GamePage>
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
 
     // Bonus-Animation einrichten
     _bonusCtrl = AnimationController(
@@ -495,9 +509,6 @@ class _GamePageState extends State<GamePage>
     // Kopf-Bild laden
     _loadHeadImage();
 
-    // Audio nach dem ersten Frame initialisieren (mobil sicherer)
-    WidgetsBinding.instance.addPostFrameCallback((_) => _initAudio());
-
     // Spiel starten + sofort loslaufen
     _newGame();
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -509,42 +520,92 @@ class _GamePageState extends State<GamePage>
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _timer?.cancel();
     _bonusCtrl.dispose();
     _bgmSub?.cancel();
-    _bgm.stop();
-    _bgm.dispose();
-    _sfxEat.dispose();
-    _sfxMouse.dispose();
-    _sfxOver.dispose();
+    for (final player in [_bgm, _sfxEat, _sfxMouse, _sfxOver]) {
+      if (player != null) unawaited(_disposeAudioPlayer(player));
+    }
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed || paused || !mounted) return;
+    setState(() => paused = true);
+    unawaited(_pauseBgm());
   }
 
   bool _bgmEverStarted =
       false; // Haben wir schon einmal wirklich play() gemacht?
+  bool _audioReady = false;
   PlayerState _bgmState = PlayerState.stopped;
   StreamSubscription<PlayerState>? _bgmSub;
 
   Future<void> _initAudio() async {
-    _bgm = AudioPlayer();
-    await _bgm.setReleaseMode(ReleaseMode.loop);
-    await _bgm.setVolume(0.80); // vorher 0.35 -> etwas lauter
-
-    // Kein setSource, kein play — Quelle wird beim ersten Start gesetzt.
-    _bgmSub?.cancel();
-    _bgmSub = _bgm.onPlayerStateChanged.listen((s) => _bgmState = s);
+    if (_audioReady) return;
+    try {
+      final player = _bgm ??= AudioPlayer();
+      await player.setReleaseMode(ReleaseMode.loop);
+      await player.setVolume(0.80);
+      _bgmSub?.cancel();
+      _bgmSub = player.onPlayerStateChanged.listen((s) => _bgmState = s);
+      _audioReady = true;
+    } catch (e) {
+      debugPrint('Audio konnte nicht initialisiert werden: $e');
+    }
   }
 
   Future<void> _startBgmIfAllowed() async {
     if (!soundOn) return;
+    if (!_audioReady) await _initAudio();
+    if (!_audioReady) return;
+    final player = _bgm;
+    if (player == null) return;
 
-    if (!_bgmEverStarted) {
-      // Erstes Mal: richtige Quelle spielen (User-Geste nötig, z.B. Button „Neu“)
-      await _bgm.play(AssetSource('music/ukulele.mp3'));
-      _bgmEverStarted = true;
-    } else if (_bgmState != PlayerState.playing) {
-      // Danach reicht resume()
-      await _bgm.resume();
+    try {
+      if (!_bgmEverStarted) {
+        await player.play(AssetSource('music/ukulele.mp3'));
+        _bgmEverStarted = true;
+      } else if (_bgmState != PlayerState.playing) {
+        await player.resume();
+      }
+    } catch (e) {
+      debugPrint('Hintergrundmusik konnte nicht gestartet werden: $e');
+    }
+  }
+
+  Future<void> _pauseBgm() async {
+    final player = _bgm;
+    if (!_audioReady || player == null) return;
+    try {
+      await player.pause();
+    } catch (e) {
+      debugPrint('Hintergrundmusik konnte nicht pausiert werden: $e');
+    }
+  }
+
+  void _playSfx(String asset) {
+    unawaited(() async {
+      try {
+        final player = switch (asset) {
+          'sfx/eat.wav' => _sfxEat ??= AudioPlayer(),
+          'sfx/mouse.wav' => _sfxMouse ??= AudioPlayer(),
+          _ => _sfxOver ??= AudioPlayer(),
+        };
+        await player.play(AssetSource(asset));
+      } catch (e) {
+        debugPrint('Soundeffekt konnte nicht abgespielt werden: $e');
+      }
+    }());
+  }
+
+  Future<void> _disposeAudioPlayer(AudioPlayer player) async {
+    try {
+      await player.dispose();
+    } catch (e) {
+      debugPrint('AudioPlayer konnte nicht freigegeben werden: $e');
     }
   }
 
@@ -555,170 +616,261 @@ class _GamePageState extends State<GamePage>
     final bodyLight = _autoBodyLight ?? fallbackLight;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Cat Snake'), centerTitle: true),
-      body: SafeArea(
-        child: Stack(
-          children: [
-            // Hintergrund-Gradient
-            Positioned.fill(
-              child: DecoratedBox(
-                decoration: const BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [
-                      Color(0xFF0F2027),
-                      Color(0xFF203A43),
-                      Color(0xFF2C5364)
-                    ],
+      appBar: AppBar(
+        title: const Text('Cat Snake'),
+        centerTitle: true,
+        toolbarHeight: 48,
+      ),
+      body: Focus(
+        autofocus: true,
+        onKeyEvent: _handleKeyEvent,
+        child: SafeArea(
+          child: Stack(
+            children: [
+              // Hintergrund-Gradient
+              const Positioned.fill(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        Color(0xFF0F2027),
+                        Color(0xFF203A43),
+                        Color(0xFF2C5364)
+                      ],
+                    ),
                   ),
                 ),
               ),
-            ),
-            // Inhalt
-            Column(
-              children: [
-                _buildHud(),
-                Expanded(
-                  child: LayoutBuilder(
-                    builder: (context, constraints) {
-                      final cell = _cellSize(constraints.biggest);
-                      return GestureDetector(
-                        onHorizontalDragUpdate: _onHorizontalDrag,
-                        onVerticalDragUpdate: _onVerticalDrag,
-                        child: Center(
-                          child: AspectRatio(
-                            aspectRatio: cols / rows,
-                            child: RepaintBoundary(
-                              child: Stack(
-                                fit: StackFit.expand,
-                                children: [
-                                  CustomPaint(
-                                    painter: _BoardPainter(
-                                      rows: rows,
-                                      cols: cols,
-                                      cell: cell,
-                                      snake: snake,
-                                      food: food,
-                                      mouse: mouse,
-                                      bodyDark: bodyDark, // Dynamische Farben
-                                      bodyLight: bodyLight, // Dynamische Farben
-                                      headImage: _headImage,
-                                    ),
-                                  ),
-                                  // vorhandenes Bonus-Overlay:
-                                  IgnorePointer(child: _buildBonusFx(cell)),
-                                ],
-                              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+                child: Column(
+                  children: [
+                    _buildHud(),
+                    const SizedBox(height: 8),
+                    Expanded(
+                      child: LayoutBuilder(
+                        builder: (context, constraints) {
+                          final useSideControls = constraints.maxWidth >= 620 &&
+                              constraints.maxWidth >
+                                  constraints.maxHeight * 1.35;
+                          final board = _buildBoard(bodyDark, bodyLight);
+                          final controls = Center(
+                            child: _DPad(
+                              key: const Key('dpad'),
+                              buttonSize: useSideControls ? 54 : 50,
+                              onUp: () => _changeDir(Direction.up),
+                              onDown: () => _changeDir(Direction.down),
+                              onLeft: () => _changeDir(Direction.left),
+                              onRight: () => _changeDir(Direction.right),
                             ),
-                          ),
-                        ),
-                      );
-                    },
-                  ),
+                          );
+
+                          if (useSideControls) {
+                            return Row(
+                              children: [
+                                Expanded(child: board),
+                                const SizedBox(width: 12),
+                                SizedBox(
+                                  width: min(230, constraints.maxWidth * 0.3),
+                                  child: controls,
+                                ),
+                              ],
+                            );
+                          }
+
+                          return Column(
+                            children: [
+                              Expanded(child: board),
+                              const SizedBox(height: 6),
+                              controls,
+                            ],
+                          );
+                        },
+                      ),
+                    ),
+                  ],
                 ),
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 12, top: 6),
-                  child: _DPad(
-                    onUp: () => _changeDir(Direction.up),
-                    onDown: () => _changeDir(Direction.down),
-                    onLeft: () => _changeDir(Direction.left),
-                    onRight: () => _changeDir(Direction.right),
-                  ),
-                ),
-              ],
-            ),
-          ],
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
 
-  Widget _buildHud() {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(12),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            color: Colors.black.withOpacity(0.35),
-            child: IconTheme(
-              data: const IconThemeData(color: Colors.white),
-              child: DefaultTextStyle.merge(
-                style: const TextStyle(color: Colors.white),
-                child: Row(
+  Widget _buildBoard(Color bodyDark, Color bodyLight) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final cell = _cellSize(constraints.biggest);
+        return GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onHorizontalDragUpdate: _onHorizontalDrag,
+          onVerticalDragUpdate: _onVerticalDrag,
+          child: Center(
+            child: SizedBox(
+              key: const Key('game-board'),
+              width: cell * cols,
+              height: cell * rows,
+              child: RepaintBoundary(
+                child: Stack(
+                  fit: StackFit.expand,
                   children: [
-                    Expanded(
-                      child: Row(
-                        children: [
-                          const Icon(Icons.stars, size: 18),
-                          const SizedBox(width: 6),
-                          const Text('Score: '),
-                          Text(
-                            '$score',
-                            style: const TextStyle(fontWeight: FontWeight.w600),
-                          ),
-                        ],
+                    CustomPaint(
+                      painter: _BoardPainter(
+                        rows: rows,
+                        cols: cols,
+                        cell: cell,
+                        snake: snake,
+                        food: food,
+                        mouse: mouse,
+                        bodyDark: bodyDark,
+                        bodyLight: bodyLight,
+                        headImage: _headImage,
                       ),
                     ),
-                    Row(
-                      children: [
-                        const Text('Wrap'),
-                        Switch(
-                          value: wrapWalls,
-                          onChanged: (v) => setState(() => wrapWalls = v),
-                        ),
-                        const SizedBox(width: 8),
-                        IconButton(
-                          tooltip: paused ? 'Fortsetzen' : 'Pause',
-                          onPressed: _togglePause,
-                          icon: Icon(paused ? Icons.play_arrow : Icons.pause),
-                        ),
-                        IconButton(
-                          tooltip: 'Katze wählen',
-                          onPressed: _pickSkin,
-                          icon: const Icon(Icons.pets),
-                        ),
-                        IconButton(
-                          tooltip: 'Sound an/aus',
-                          onPressed: () async {
-                            setState(() => soundOn = !soundOn);
-                            if (soundOn) {
-                              await _startBgmIfAllowed();
-                            } else {
-                              await _bgm.pause();
-                            }
-                          },
-                          icon: Icon(
-                              soundOn ? Icons.volume_up : Icons.volume_off),
-                        ),
-                        const SizedBox(width: 4),
-                        ElevatedButton.icon(
-                          onPressed: _newGame,
-                          icon: const Icon(Icons.refresh),
-                          label: const Text('Neu'),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.teal,
-                            foregroundColor: Colors.white,
-                            elevation: 0,
-                            shape: const StadiumBorder(),
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 14, vertical: 10),
-                            textStyle:
-                                const TextStyle(fontWeight: FontWeight.w600),
-                          ),
-                        ),
-                      ],
-                    ),
+                    IgnorePointer(child: _buildBonusFx(cell)),
                   ],
                 ),
               ),
             ),
           ),
-        ),
-      ),
+        );
+      },
+    );
+  }
+
+  Widget _buildHud() {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final compact = constraints.maxWidth < 600;
+        final iconConstraints = BoxConstraints.tightFor(
+          width: compact ? 40 : 44,
+          height: 40,
+        );
+
+        Widget actionButton({
+          required String tooltip,
+          required IconData icon,
+          required VoidCallback onPressed,
+          Color? color,
+        }) {
+          return IconButton(
+            tooltip: tooltip,
+            constraints: iconConstraints,
+            visualDensity: VisualDensity.compact,
+            onPressed: onPressed,
+            icon: Icon(icon, color: color),
+          );
+        }
+
+        return ClipRRect(
+          borderRadius: BorderRadius.circular(12),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              color: Colors.black.withValues(alpha: 0.35),
+              child: IconTheme(
+                data: const IconThemeData(color: Colors.white),
+                child: DefaultTextStyle.merge(
+                  style: const TextStyle(color: Colors.white),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Row(
+                          children: [
+                            const Icon(Icons.stars, size: 18),
+                            const SizedBox(width: 6),
+                            const Text('Score: '),
+                            Text(
+                              '$score',
+                              style:
+                                  const TextStyle(fontWeight: FontWeight.w600),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (compact)
+                            actionButton(
+                              tooltip: wrapWalls
+                                  ? 'Rand-Warp ausschalten'
+                                  : 'Rand-Warp einschalten',
+                              icon: Icons.all_inclusive,
+                              color: wrapWalls
+                                  ? Colors.tealAccent
+                                  : Colors.white54,
+                              onPressed: () =>
+                                  setState(() => wrapWalls = !wrapWalls),
+                            )
+                          else ...[
+                            const Text('Wrap'),
+                            Switch(
+                              value: wrapWalls,
+                              onChanged: (v) => setState(() => wrapWalls = v),
+                            ),
+                          ],
+                          actionButton(
+                            tooltip: paused ? 'Fortsetzen' : 'Pause',
+                            onPressed: _togglePause,
+                            icon: paused ? Icons.play_arrow : Icons.pause,
+                          ),
+                          actionButton(
+                            tooltip: 'Katze wählen',
+                            onPressed: _pickSkin,
+                            icon: Icons.pets,
+                          ),
+                          actionButton(
+                            tooltip: 'Sound an/aus',
+                            onPressed: () async {
+                              setState(() => soundOn = !soundOn);
+                              if (soundOn) {
+                                await _startBgmIfAllowed();
+                              } else {
+                                await _pauseBgm();
+                              }
+                            },
+                            icon: soundOn ? Icons.volume_up : Icons.volume_off,
+                          ),
+                          if (compact)
+                            actionButton(
+                              tooltip: 'Neues Spiel',
+                              icon: Icons.refresh,
+                              color: Colors.tealAccent,
+                              onPressed: () => _newGame(startAudio: true),
+                            )
+                          else
+                            ElevatedButton.icon(
+                              onPressed: () => _newGame(startAudio: true),
+                              icon: const Icon(Icons.refresh),
+                              label: const Text('Neu'),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.teal,
+                                foregroundColor: Colors.white,
+                                elevation: 0,
+                                shape: const StadiumBorder(),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 14,
+                                  vertical: 10,
+                                ),
+                                textStyle: const TextStyle(
+                                    fontWeight: FontWeight.w600),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -756,7 +908,7 @@ class _GamePageState extends State<GamePage>
                       borderRadius: BorderRadius.circular(20),
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.black.withOpacity(0.3),
+                          color: Colors.black.withValues(alpha: 0.3),
                           blurRadius: 10,
                         ),
                       ],
@@ -806,17 +958,17 @@ class _BonusRipplePainter extends CustomPainter {
     final p1 = Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = 2
-      ..color = Colors.teal.withOpacity(0.70 * fade);
+      ..color = Colors.teal.withValues(alpha: 0.70 * fade);
 
     final p2 = Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = 2
-      ..color = Colors.white.withOpacity(0.45 * fade);
+      ..color = Colors.white.withValues(alpha: 0.45 * fade);
 
     final p3 = Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1.5
-      ..color = Colors.tealAccent.withOpacity(0.25 * fade);
+      ..color = Colors.tealAccent.withValues(alpha: 0.25 * fade);
 
     canvas.drawCircle(center, r1, p1);
     canvas.drawCircle(center, r2, p2);
@@ -863,7 +1015,7 @@ class _BoardPainter extends CustomPainter {
 
     // Hintergrund + Grid (Glasoptik)
     final gridPaint = Paint()
-      ..color = Colors.grey.withOpacity(0.12)
+      ..color = Colors.grey.withValues(alpha: 0.12)
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1;
 
@@ -874,7 +1026,7 @@ class _BoardPainter extends CustomPainter {
 
     // weicher Schatten
     final shadow = Paint()
-      ..color = Colors.black.withOpacity(0.25)
+      ..color = Colors.black.withValues(alpha: 0.25)
       ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 12);
     canvas.save();
     canvas.translate(0, 4);
@@ -907,7 +1059,7 @@ class _BoardPainter extends CustomPainter {
     ];
 
     // Unwrap: wähle pro Segment die nächstliegende gewrappt/geoffsette Position
-    List<Offset> _unwrapCenters(List<Offset> c) {
+    List<Offset> unwrapCenters(List<Offset> c) {
       if (c.isEmpty) return [];
       final out = <Offset>[c.first];
       for (int i = 1; i < c.length; i++) {
@@ -929,7 +1081,7 @@ class _BoardPainter extends CustomPainter {
       return out;
     }
 
-    Offset _wrap(Offset o) {
+    Offset wrap(Offset o) {
       double wrap1(double v, double max) {
         final m = v % max;
         return m < 0 ? m + max : m;
@@ -938,7 +1090,7 @@ class _BoardPainter extends CustomPainter {
       return Offset(wrap1(o.dx, W), wrap1(o.dy, H));
     }
 
-    final centers = _unwrapCenters(centersOrig);
+    final centers = unwrapCenters(centersOrig);
 
     // Clip auf Brett
     canvas.save();
@@ -946,7 +1098,7 @@ class _BoardPainter extends CustomPainter {
 
     // Schatten unter dem Körper
     final shadowPaint = Paint()
-      ..color = Colors.black.withOpacity(0.12)
+      ..color = Colors.black.withValues(alpha: 0.12)
       ..style = PaintingStyle.stroke
       ..strokeCap = StrokeCap.round;
 
@@ -975,7 +1127,7 @@ class _BoardPainter extends CustomPainter {
 
     for (int i = centers.length - 1; i > 0; i--) {
       final t = 1.0 - (i / (centers.length - 1));
-      final color = Color.lerp(bodyDark, bodyLight, t)!.withOpacity(0.95);
+      final color = Color.lerp(bodyDark, bodyLight, t)!.withValues(alpha: 0.95);
       bodyPaint
         ..color = color
         ..strokeWidth = 2.0 * min(radiusAt(i), radiusAt(i - 1)).toDouble();
@@ -988,12 +1140,12 @@ class _BoardPainter extends CustomPainter {
       final r = radiusAt(i);
       final t = 1.0 - (i / centers.length); // 0 (=Schwanz) … 1 (=Kopf)
       jointPaint.color = Color.lerp(bodyDark, bodyLight, t)!;
-      canvas.drawCircle(_wrap(centers[i]), r, jointPaint);
+      canvas.drawCircle(wrap(centers[i]), r, jointPaint);
 
       // dezenter Glanz
-      final highlight = Paint()..color = Colors.white.withOpacity(0.08);
+      final highlight = Paint()..color = Colors.white.withValues(alpha: 0.08);
       canvas.drawCircle(
-          _wrap(centers[i]) + Offset(-r * 0.25, -r * 0.25), r * 0.7, highlight);
+          wrap(centers[i]) + Offset(-r * 0.25, -r * 0.25), r * 0.7, highlight);
     }
 
     // Futter (🐟)
@@ -1053,6 +1205,8 @@ class _BoardPainter extends CustomPainter {
         old.cell != cell ||
         old.cols != cols ||
         old.rows != rows ||
+        old.bodyDark != bodyDark ||
+        old.bodyLight != bodyLight ||
         old.headImage != headImage; // NEU
   }
 }
@@ -1062,24 +1216,27 @@ class _DPad extends StatelessWidget {
   final VoidCallback onDown;
   final VoidCallback onLeft;
   final VoidCallback onRight;
+  final double buttonSize;
 
   const _DPad({
     required this.onUp,
     required this.onDown,
     required this.onLeft,
     required this.onRight,
+    this.buttonSize = 54,
     super.key,
   });
 
   @override
   Widget build(BuildContext context) {
     final btnStyle = ElevatedButton.styleFrom(
-      minimumSize: const Size(64, 64),
+      minimumSize: Size.square(buttonSize),
       shape: const CircleBorder(),
       padding: EdgeInsets.zero,
+      tapTargetSize: MaterialTapTargetSize.padded,
     );
     return SizedBox(
-      width: 260,
+      width: buttonSize * 3.6,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -1087,24 +1244,27 @@ class _DPad extends StatelessWidget {
             ElevatedButton(
                 onPressed: onUp,
                 style: btnStyle,
-                child: const Icon(Icons.keyboard_arrow_up, size: 36)),
+                child: Icon(Icons.keyboard_arrow_up, size: buttonSize * 0.58)),
           ]),
           Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
             ElevatedButton(
                 onPressed: onLeft,
                 style: btnStyle,
-                child: const Icon(Icons.keyboard_arrow_left, size: 36)),
-            const SizedBox(width: 16),
+                child:
+                    Icon(Icons.keyboard_arrow_left, size: buttonSize * 0.58)),
+            SizedBox(width: buttonSize * 0.45),
             ElevatedButton(
                 onPressed: onRight,
                 style: btnStyle,
-                child: const Icon(Icons.keyboard_arrow_right, size: 36)),
+                child:
+                    Icon(Icons.keyboard_arrow_right, size: buttonSize * 0.58)),
           ]),
           Row(mainAxisAlignment: MainAxisAlignment.center, children: [
             ElevatedButton(
                 onPressed: onDown,
                 style: btnStyle,
-                child: const Icon(Icons.keyboard_arrow_down, size: 36)),
+                child:
+                    Icon(Icons.keyboard_arrow_down, size: buttonSize * 0.58)),
           ]),
         ],
       ),
