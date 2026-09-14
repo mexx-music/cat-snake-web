@@ -36,6 +36,7 @@ class _GamePageState extends State<GamePage>
   Timer? _timer;
   int tickMs = 180;
   int score = 0;
+  bool _gameStarted = false;
   bool paused = false;
   bool wrapWalls = true; // Wrap standardmäßig EIN
 
@@ -160,10 +161,11 @@ class _GamePageState extends State<GamePage>
     }
   }
 
-  void _newGame({bool startAudio = false}) async {
+  void _newGame() {
     _timer?.cancel();
     score = 0;
     tickMs = 180;
+    _gameStarted = false;
     paused = false;
     dir = Direction.right;
     _pendingDir = null;
@@ -179,11 +181,18 @@ class _GamePageState extends State<GamePage>
 
     _spawnFood();
     _spawnMouse();
-    _startTimer();
-
-    if (startAudio) await _startBgmIfAllowed();
 
     setState(() {});
+  }
+
+  Future<void> _startGame() async {
+    if (_gameStarted) return;
+    setState(() {
+      _gameStarted = true;
+      paused = false;
+    });
+    _startTimer();
+    await _startBgmIfAllowed();
   }
 
   void _startTimer() {
@@ -192,6 +201,7 @@ class _GamePageState extends State<GamePage>
   }
 
   void _togglePause() async {
+    if (!_gameStarted) return;
     setState(() => paused = !paused);
     if (!soundOn) return;
 
@@ -261,6 +271,7 @@ class _GamePageState extends State<GamePage>
   }
 
   void _changeDir(Direction next) {
+    if (!_gameStarted) return;
     // Pro Tick genau eine Richtungsänderung puffern. So kann ein schneller
     // diagonaler Swipe die Katze nicht versehentlich in den Hals drehen.
     if (_pendingDir != null) return;
@@ -277,6 +288,14 @@ class _GamePageState extends State<GamePage>
     if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
       return KeyEventResult.ignored;
     }
+
+    if (!_gameStarted &&
+        (event.logicalKey == LogicalKeyboardKey.space ||
+            event.logicalKey == LogicalKeyboardKey.enter)) {
+      unawaited(_startGame());
+      return KeyEventResult.handled;
+    }
+    if (!_gameStarted) return KeyEventResult.ignored;
 
     final next = switch (event.logicalKey) {
       LogicalKeyboardKey.arrowUp => Direction.up,
@@ -298,7 +317,7 @@ class _GamePageState extends State<GamePage>
   }
 
   void _tick() {
-    if (!mounted || paused) return;
+    if (!mounted || !_gameStarted || paused) return;
 
     dir = _pendingDir ?? dir;
     _pendingDir = null;
@@ -384,6 +403,7 @@ class _GamePageState extends State<GamePage>
 
   void _gameOver() {
     _timer?.cancel();
+    setState(() => _gameStarted = false);
     if (soundOn) _playSfx('sfx/game_over.wav');
     unawaited(_pauseBgm());
 
@@ -397,9 +417,9 @@ class _GamePageState extends State<GamePage>
           TextButton(
             onPressed: () {
               Navigator.of(ctx).pop();
-              _newGame(startAudio: true);
+              _newGame();
             },
-            child: const Text('Neu starten'),
+            child: const Text('Zum Start'),
           ),
         ],
       ),
@@ -509,13 +529,8 @@ class _GamePageState extends State<GamePage>
     // Kopf-Bild laden
     _loadHeadImage();
 
-    // Spiel starten + sofort loslaufen
+    // Spielfeld vorbereiten; gestartet wird bewusst über den Start-Button.
     _newGame();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      paused = false;
-      _tick(); // erster Schritt sofort
-    });
   }
 
   @override
@@ -731,6 +746,50 @@ class _GamePageState extends State<GamePage>
                       ),
                     ),
                     IgnorePointer(child: _buildBonusFx(cell)),
+                    if (!_gameStarted)
+                      Positioned.fill(
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(16),
+                          child: ColoredBox(
+                            color: Colors.black.withValues(alpha: 0.58),
+                            child: Center(
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(
+                                    Icons.pets,
+                                    color: Colors.white,
+                                    size: 42,
+                                  ),
+                                  const SizedBox(height: 10),
+                                  FilledButton.icon(
+                                    key: const Key('start-button'),
+                                    onPressed: _startGame,
+                                    icon: const Icon(Icons.play_arrow),
+                                    label: const Text('Spiel starten'),
+                                    style: FilledButton.styleFrom(
+                                      backgroundColor: Colors.teal,
+                                      foregroundColor: Colors.white,
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 22,
+                                        vertical: 14,
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  const Text(
+                                    'Computer: Leertaste oder Enter',
+                                    style: TextStyle(
+                                      color: Colors.white70,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
                   ],
                 ),
               ),
@@ -753,7 +812,7 @@ class _GamePageState extends State<GamePage>
         Widget actionButton({
           required String tooltip,
           required IconData icon,
-          required VoidCallback onPressed,
+          required VoidCallback? onPressed,
           Color? color,
         }) {
           return IconButton(
@@ -815,8 +874,12 @@ class _GamePageState extends State<GamePage>
                             ),
                           ],
                           actionButton(
-                            tooltip: paused ? 'Fortsetzen' : 'Pause',
-                            onPressed: _togglePause,
+                            tooltip: !_gameStarted
+                                ? 'Spiel zuerst starten'
+                                : paused
+                                    ? 'Fortsetzen'
+                                    : 'Pause',
+                            onPressed: _gameStarted ? _togglePause : null,
                             icon: paused ? Icons.play_arrow : Icons.pause,
                           ),
                           actionButton(
@@ -841,11 +904,11 @@ class _GamePageState extends State<GamePage>
                               tooltip: 'Neues Spiel',
                               icon: Icons.refresh,
                               color: Colors.tealAccent,
-                              onPressed: () => _newGame(startAudio: true),
+                              onPressed: _newGame,
                             )
                           else
                             ElevatedButton.icon(
-                              onPressed: () => _newGame(startAudio: true),
+                              onPressed: _newGame,
                               icon: const Icon(Icons.refresh),
                               label: const Text('Neu'),
                               style: ElevatedButton.styleFrom(
