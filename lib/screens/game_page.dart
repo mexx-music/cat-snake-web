@@ -63,112 +63,6 @@ class _GamePageState extends State<GamePage>
   bool _isMouseBonusFx = false;
 
   CatSkin selectedSkin = CatSkin.red; // Standard-Skin
-  ui.Image? _headImage; // Kopf-Bild
-
-  // Dynamische Farben aus dem Kopf-Bild ableiten
-  Future<(Color bodyDark, Color bodyLight)> _colorsFromHead(
-      ui.Image img) async {
-    // 1) ui.Image -> PNG-Bytes
-    final bdPng = await img.toByteData(format: ui.ImageByteFormat.png);
-    if (bdPng == null) {
-      // Fallback-Farben
-      return (const Color(0xFF2C5364), const Color(0xFF9EE7FF));
-    }
-    final bytesPng = bdPng.buffer.asUint8List();
-
-    // 2) Klein decodieren (performant)
-    final codec = await ui.instantiateImageCodec(
-      bytesPng,
-      targetWidth: 32,
-      targetHeight: 32,
-    );
-    final f = await codec.getNextFrame();
-    final small = f.image;
-
-    // 3) RGBA holen
-    final bd = await small.toByteData(format: ui.ImageByteFormat.rawRgba);
-    if (bd == null) {
-      return (const Color(0xFF2C5364), const Color(0xFF9EE7FF));
-    }
-    final bytes = bd.buffer.asUint8List();
-
-    // 4) Histogramm über grob quantisierte Farben (5 Bit/Kanal)
-    final hist = <int, int>{};
-    for (int i = 0; i < bytes.length; i += 4) {
-      final r = bytes[i];
-      final g = bytes[i + 1];
-      final b = bytes[i + 2];
-      final a = bytes[i + 3];
-      if (a < 16) continue; // sehr transparente Pixel ignorieren
-
-      final rq = r >> 3, gq = g >> 3, bq = b >> 3; // 0..31
-      final key = (rq << 10) | (gq << 5) | bq;
-      hist[key] = (hist[key] ?? 0) + 1;
-    }
-
-    if (hist.isEmpty) {
-      return (const Color(0xFF2C5364), const Color(0xFF9EE7FF));
-    }
-
-    // 5) Dominante Bucket-Farbe
-    var bestKey = hist.entries.reduce((a, b) => a.value > b.value ? a : b).key;
-    final rq = (bestKey >> 10) & 31;
-    final gq = (bestKey >> 5) & 31;
-    final bq = bestKey & 31;
-
-    final r = (rq << 3) | 0x7; // Mitte der Stufe
-    final g = (gq << 3) | 0x7;
-    final b = (bq << 3) | 0x7;
-
-    final base = HSLColor.fromColor(Color.fromARGB(255, r, g, b));
-    final bodyDark =
-        base.withLightness((base.lightness * 0.55).clamp(0.0, 1.0)).toColor();
-    final bodyLight =
-        base.withLightness((base.lightness * 1.25).clamp(0.0, 1.0)).toColor();
-
-    return (bodyDark, bodyLight);
-  }
-
-  Color? _autoBodyDark;
-  Color? _autoBodyLight;
-
-  Future<void> _recomputeBodyColorsFromHead() async {
-    final img = _headImage;
-    if (img == null) {
-      setState(() {
-        _autoBodyDark = null;
-        _autoBodyLight = null;
-      });
-      return;
-    }
-    try {
-      final (d, l) = await _colorsFromHead(img);
-      if (!mounted) return;
-      setState(() {
-        _autoBodyDark = d;
-        _autoBodyLight = l;
-      });
-    } catch (e) {
-      debugPrint('Color extract failed: $e');
-      setState(() {
-        _autoBodyDark = null;
-        _autoBodyLight = null;
-      });
-    }
-  }
-
-  Future<void> _loadHeadImage() async {
-    try {
-      final data = await rootBundle.load(headAsset[selectedSkin]!);
-      final codec = await ui.instantiateImageCodec(data.buffer.asUint8List());
-      final frame = await codec.getNextFrame();
-      setState(() => _headImage = frame.image);
-      await _recomputeBodyColorsFromHead(); // Farben neu berechnen
-    } catch (e) {
-      debugPrint('Fehler beim Laden des Kopf-Bildes: $e');
-      setState(() => _headImage = null); // Fallback
-    }
-  }
 
   void _newGame() {
     _gameTicker?.stop();
@@ -505,7 +399,7 @@ class _GamePageState extends State<GamePage>
       backgroundColor: Colors.black.withValues(alpha: 0.7),
       barrierColor: Colors.black54,
       builder: (_) {
-        Widget tile(String label, CatSkin skin, String asset) {
+        Widget tile(String label, CatSkin skin) {
           final isSel = selectedSkin == skin;
           return GestureDetector(
             onTap: () => Navigator.pop(context, skin),
@@ -521,11 +415,9 @@ class _GamePageState extends State<GamePage>
                     ),
                     borderRadius: BorderRadius.circular(12),
                   ),
-                  child: Image.asset(
-                    asset,
-                    width: 72,
-                    height: 72,
-                    fit: BoxFit.contain,
+                  child: CustomPaint(
+                    painter: _CatPreviewPainter(skin),
+                    size: const Size.square(72),
                   ),
                 ),
                 const SizedBox(height: 6),
@@ -541,9 +433,9 @@ class _GamePageState extends State<GamePage>
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
-                tile('Red', CatSkin.red, skinAsset[CatSkin.red]!),
-                tile('Blacky', CatSkin.black, skinAsset[CatSkin.black]!),
-                tile('Felix', CatSkin.tuxedo, skinAsset[CatSkin.tuxedo]!),
+                tile('Red', CatSkin.red),
+                tile('Blacky', CatSkin.black),
+                tile('Felix', CatSkin.tuxedo),
               ],
             ),
           ),
@@ -553,8 +445,6 @@ class _GamePageState extends State<GamePage>
 
     if (choice != null) {
       setState(() => selectedSkin = choice);
-      await _loadHeadImage();
-      await _recomputeBodyColorsFromHead();
     }
   }
 
@@ -592,9 +482,6 @@ class _GamePageState extends State<GamePage>
         setState(() => _bonusAt = null);
       }
     });
-
-    // Kopf-Bild laden
-    _loadHeadImage();
 
     // Spielfeld vorbereiten; gestartet wird bewusst über den Start-Button.
     _newGame();
@@ -697,9 +584,7 @@ class _GamePageState extends State<GamePage>
 
   @override
   Widget build(BuildContext context) {
-    final (fallbackDark, fallbackLight) = skinBodyColors[selectedSkin]!;
-    final bodyDark = _autoBodyDark ?? fallbackDark;
-    final bodyLight = _autoBodyLight ?? fallbackLight;
+    final (bodyDark, bodyLight) = skinBodyColors[selectedSkin]!;
 
     return Scaffold(
       appBar: AppBar(
@@ -824,12 +709,12 @@ class _GamePageState extends State<GamePage>
                         previousSnake: _previousSnake,
                         food: food,
                         mouse: mouse,
+                        direction: dir,
                         skin: selectedSkin,
                         movement: _moveCtrl,
                         ambient: _ambientCtrl,
                         bodyDark: bodyDark,
                         bodyLight: bodyLight,
-                        headImage: _headImage,
                       ),
                     ),
                     IgnorePointer(child: _buildBonusFx(cell)),
@@ -1196,13 +1081,13 @@ class _BoardPainter extends CustomPainter {
   final List<Point<int>> previousSnake;
   final Point<int>? food;
   final Point<int>? mouse;
+  final Direction direction;
   final CatSkin skin;
   final Animation<double> movement;
   final Animation<double> ambient;
 
   final Color bodyDark;
   final Color bodyLight;
-  final ui.Image? headImage; // NEU
 
   _BoardPainter({
     required this.rows,
@@ -1212,12 +1097,12 @@ class _BoardPainter extends CustomPainter {
     required this.previousSnake,
     required this.food,
     required this.mouse,
+    required this.direction,
     required this.skin,
     required this.movement,
     required this.ambient,
     required this.bodyDark,
     required this.bodyLight,
-    required this.headImage,
   }) : super(repaint: Listenable.merge([movement, ambient]));
 
   @override
@@ -1468,71 +1353,44 @@ class _BoardPainter extends CustomPainter {
       );
     }
 
-    // Futter (🐟)
+    // Futter im selben Cartoonstil wie die Katze.
     if (food != null) {
       final fCenter = Offset((food!.x + 0.5) * cell, (food!.y + 0.5) * cell);
       final fishPhase = ambient.value * pi * 2 + food!.x * 0.7 + food!.y * 0.35;
-      canvas.save();
-      canvas.translate(
-        fCenter.dx,
-        fCenter.dy + sin(fishPhase) * cell * 0.08,
+      _paintCartoonFish(
+        canvas,
+        fCenter + Offset(0, sin(fishPhase) * cell * 0.08),
+        cell * 0.88,
+        sin(fishPhase) * 0.07,
       );
-      canvas.rotate(sin(fishPhase) * 0.07);
-      final fishScale = 1 + cos(fishPhase) * 0.025;
-      canvas.scale(fishScale, fishScale);
-      _drawEmoji(canvas, '🐟', Offset.zero, cell * 0.9);
-      canvas.restore();
     }
 
-    // Maus (🐭)
+    // Maus mit weicher, leicht wippender Cartoon-Animation.
     if (mouse != null) {
       final mCenter = Offset((mouse!.x + 0.5) * cell, (mouse!.y + 0.5) * cell);
-      _drawEmoji(canvas, '🐭', mCenter, cell * 0.9);
+      final mousePhase = ambient.value * pi * 2 + mouse!.x * 0.45;
+      _paintCartoonMouse(
+        canvas,
+        mCenter + Offset(0, sin(mousePhase) * cell * 0.035),
+        cell * 0.9,
+        sin(mousePhase) * 0.035,
+      );
     }
 
-    // Kopf zeichnen
+    // Richtungsabhängiger Katzenkopf aus denselben Formen und Farben wie der
+    // Schwanz. Die Draufsicht darf gedreht werden, ohne kopfüber zu wirken.
     if (snake.isNotEmpty) {
       final headCenter = wrap(centers.first);
-      final headSize = cell * 1.02;
-
-      canvas.drawCircle(
-        headCenter + Offset(0, cell * 0.08),
-        headSize * 0.45,
-        Paint()..color = Colors.black.withValues(alpha: 0.22),
+      _paintCartoonCatHead(
+        canvas,
+        headCenter,
+        cell * 1.14,
+        skin,
+        direction,
       );
-      canvas.save();
-      canvas.translate(headCenter.dx, headCenter.dy);
-      final dst = Rect.fromCenter(
-        center: Offset.zero,
-        width: headSize,
-        height: headSize,
-      );
-
-      if (headImage != null) {
-        canvas.drawImageRect(
-          headImage!,
-          Rect.fromLTWH(
-              0, 0, headImage!.width.toDouble(), headImage!.height.toDouble()),
-          dst,
-          Paint(),
-        );
-      } else {
-        _drawEmoji(canvas, '🐱', Offset.zero, headSize); // Fallback
-      }
-      canvas.restore();
     }
 
     canvas.restore();
-  }
-
-  void _drawEmoji(Canvas canvas, String emoji, Offset center, double sizePx) {
-    final tp = TextPainter(
-      text: TextSpan(text: emoji, style: TextStyle(fontSize: sizePx)),
-      textDirection: TextDirection.ltr,
-    );
-    tp.layout();
-    final pos = center - Offset(tp.width / 2, tp.height / 2);
-    tp.paint(canvas, pos);
   }
 
   @override
@@ -1541,14 +1399,349 @@ class _BoardPainter extends CustomPainter {
         old.previousSnake != previousSnake ||
         old.food != food ||
         old.mouse != mouse ||
+        old.direction != direction ||
         old.skin != skin ||
         old.cell != cell ||
         old.cols != cols ||
         old.rows != rows ||
         old.bodyDark != bodyDark ||
-        old.bodyLight != bodyLight ||
-        old.headImage != headImage; // NEU
+        old.bodyLight != bodyLight;
   }
+}
+
+class _CatPreviewPainter extends CustomPainter {
+  final CatSkin skin;
+
+  const _CatPreviewPainter(this.skin);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    _paintCartoonCatHead(
+      canvas,
+      size.center(Offset.zero),
+      min(size.width, size.height) * 0.86,
+      skin,
+      Direction.right,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _CatPreviewPainter oldDelegate) =>
+      oldDelegate.skin != skin;
+}
+
+void _paintCartoonCatHead(
+  Canvas canvas,
+  Offset center,
+  double size,
+  CatSkin skin,
+  Direction direction,
+) {
+  final angle = switch (direction) {
+    Direction.right => 0.0,
+    Direction.down => pi / 2,
+    Direction.left => pi,
+    Direction.up => -pi / 2,
+  };
+  final baseColor = switch (skin) {
+    CatSkin.red => const Color(0xFFF18A43),
+    CatSkin.black => const Color(0xFF343941),
+    CatSkin.tuxedo => const Color(0xFF30343A),
+  };
+  final outlineColor = switch (skin) {
+    CatSkin.red => const Color(0xFF71321E),
+    CatSkin.black => const Color(0xFF111419),
+    CatSkin.tuxedo => const Color(0xFF111419),
+  };
+  final muzzleColor = switch (skin) {
+    CatSkin.red => const Color(0xFFFFD4A3),
+    CatSkin.black => const Color(0xFF525A63),
+    CatSkin.tuxedo => const Color(0xFFF5F1E8),
+  };
+  final eyeColor = switch (skin) {
+    CatSkin.red => const Color(0xFF6ED7A7),
+    CatSkin.black => const Color(0xFFF3D35D),
+    CatSkin.tuxedo => const Color(0xFF72D6D0),
+  };
+
+  canvas.save();
+  canvas.translate(center.dx, center.dy);
+  canvas.rotate(angle);
+
+  final shadowPaint = Paint()
+    ..color = Colors.black.withValues(alpha: 0.28)
+    ..maskFilter = MaskFilter.blur(BlurStyle.normal, size * 0.07);
+  canvas.drawOval(
+    Rect.fromCenter(
+      center: Offset(0, size * 0.07),
+      width: size * 0.92,
+      height: size * 0.76,
+    ),
+    shadowPaint,
+  );
+
+  Path ear(double sign) => Path()
+    ..moveTo(size * 0.05, sign * size * 0.29)
+    ..lineTo(size * 0.34, sign * size * 0.48)
+    ..lineTo(size * 0.4, sign * size * 0.18)
+    ..close();
+  final outlinePaint = Paint()..color = outlineColor;
+  canvas.drawPath(ear(-1), outlinePaint);
+  canvas.drawPath(ear(1), outlinePaint);
+  final innerEarPaint = Paint()..color = const Color(0xFFF29B9B);
+  canvas.save();
+  canvas.scale(0.82, 0.82);
+  canvas.drawPath(ear(-1), innerEarPaint);
+  canvas.drawPath(ear(1), innerEarPaint);
+  canvas.restore();
+
+  final headRect = Rect.fromCenter(
+    center: Offset(-size * 0.025, 0),
+    width: size * 0.88,
+    height: size * 0.75,
+  );
+  canvas.drawOval(headRect.inflate(size * 0.045), outlinePaint);
+  final headPaint = Paint()
+    ..shader = LinearGradient(
+      begin: Alignment.topLeft,
+      end: Alignment.bottomRight,
+      colors: [Color.lerp(baseColor, Colors.white, 0.2)!, baseColor],
+    ).createShader(headRect);
+  canvas.drawOval(headRect, headPaint);
+
+  if (skin == CatSkin.red) {
+    final stripePaint = Paint()
+      ..color = const Color(0xFF9B4728)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = size * 0.055
+      ..strokeCap = StrokeCap.round;
+    for (final y in [-0.21, 0.0, 0.21]) {
+      canvas.drawLine(
+        Offset(-size * 0.38, size * y),
+        Offset(-size * 0.21, size * y * 0.78),
+        stripePaint,
+      );
+    }
+  } else if (skin == CatSkin.tuxedo) {
+    final blaze = Path()
+      ..moveTo(-size * 0.33, -size * 0.08)
+      ..quadraticBezierTo(-size * 0.05, -size * 0.2, size * 0.2, 0)
+      ..quadraticBezierTo(-size * 0.05, size * 0.2, -size * 0.33, size * 0.08)
+      ..close();
+    canvas.drawPath(blaze, Paint()..color = const Color(0xFFF5F1E8));
+  }
+
+  final muzzlePaint = Paint()..color = muzzleColor;
+  canvas.drawOval(
+    Rect.fromCenter(
+      center: Offset(size * 0.2, -size * 0.105),
+      width: size * 0.37,
+      height: size * 0.25,
+    ),
+    muzzlePaint,
+  );
+  canvas.drawOval(
+    Rect.fromCenter(
+      center: Offset(size * 0.2, size * 0.105),
+      width: size * 0.37,
+      height: size * 0.25,
+    ),
+    muzzlePaint,
+  );
+
+  final eyePaint = Paint()..color = eyeColor;
+  final pupilPaint = Paint()..color = const Color(0xFF132027);
+  for (final sign in [-1.0, 1.0]) {
+    final eye = Offset(size * 0.04, sign * size * 0.205);
+    canvas.drawOval(
+      Rect.fromCenter(
+        center: eye,
+        width: size * 0.17,
+        height: size * 0.13,
+      ),
+      eyePaint,
+    );
+    canvas.drawOval(
+      Rect.fromCenter(
+        center: eye + Offset(size * 0.025, 0),
+        width: size * 0.055,
+        height: size * 0.1,
+      ),
+      pupilPaint,
+    );
+    canvas.drawCircle(
+      eye + Offset(size * 0.045, -sign * size * 0.025),
+      size * 0.018,
+      Paint()..color = Colors.white,
+    );
+  }
+
+  final nose = Path()
+    ..moveTo(size * 0.41, 0)
+    ..lineTo(size * 0.31, -size * 0.075)
+    ..lineTo(size * 0.31, size * 0.075)
+    ..close();
+  canvas.drawPath(nose, Paint()..color = const Color(0xFFE8737D));
+
+  final linePaint = Paint()
+    ..color = outlineColor.withValues(alpha: 0.8)
+    ..strokeWidth = max(1, size * 0.018)
+    ..strokeCap = StrokeCap.round;
+  canvas.drawLine(
+    Offset(size * 0.32, 0),
+    Offset(size * 0.24, size * 0.04),
+    linePaint,
+  );
+  canvas.drawLine(
+    Offset(size * 0.32, 0),
+    Offset(size * 0.24, -size * 0.04),
+    linePaint,
+  );
+  for (final sign in [-1.0, 1.0]) {
+    canvas.drawLine(
+      Offset(size * 0.29, sign * size * 0.1),
+      Offset(size * 0.57, sign * size * 0.17),
+      linePaint,
+    );
+    canvas.drawLine(
+      Offset(size * 0.28, sign * size * 0.13),
+      Offset(size * 0.55, sign * size * 0.27),
+      linePaint,
+    );
+  }
+  canvas.restore();
+}
+
+void _paintCartoonFish(
+  Canvas canvas,
+  Offset center,
+  double size,
+  double angle,
+) {
+  canvas.save();
+  canvas.translate(center.dx, center.dy);
+  canvas.rotate(angle);
+  final outline = Paint()..color = const Color(0xFF164B63);
+  final bodyRect = Rect.fromCenter(
+    center: Offset(size * 0.05, 0),
+    width: size * 0.68,
+    height: size * 0.43,
+  );
+  final tail = Path()
+    ..moveTo(-size * 0.27, 0)
+    ..lineTo(-size * 0.5, -size * 0.25)
+    ..lineTo(-size * 0.5, size * 0.25)
+    ..close();
+  canvas.drawPath(tail, outline);
+  canvas.drawOval(bodyRect.inflate(size * 0.045), outline);
+  canvas.drawPath(tail, Paint()..color = const Color(0xFF4CC5D7));
+  canvas.drawOval(
+    bodyRect,
+    Paint()
+      ..shader = const LinearGradient(
+        colors: [Color(0xFF88E5E9), Color(0xFF35AFC8)],
+      ).createShader(bodyRect),
+  );
+  canvas.drawCircle(
+    Offset(size * 0.25, -size * 0.07),
+    size * 0.055,
+    Paint()..color = Colors.white,
+  );
+  canvas.drawCircle(
+    Offset(size * 0.27, -size * 0.07),
+    size * 0.026,
+    Paint()..color = const Color(0xFF12313B),
+  );
+  canvas.drawArc(
+    Rect.fromCenter(
+      center: Offset(size * 0.17, size * 0.06),
+      width: size * 0.22,
+      height: size * 0.15,
+    ),
+    0.15,
+    1.05,
+    false,
+    Paint()
+      ..color = Colors.white.withValues(alpha: 0.7)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = max(1, size * 0.025),
+  );
+  canvas.restore();
+}
+
+void _paintCartoonMouse(
+  Canvas canvas,
+  Offset center,
+  double size,
+  double angle,
+) {
+  canvas.save();
+  canvas.translate(center.dx, center.dy);
+  canvas.rotate(angle);
+  final outline = Paint()
+    ..color = const Color(0xFF39444D)
+    ..style = PaintingStyle.stroke
+    ..strokeWidth = max(1.2, size * 0.045)
+    ..strokeCap = StrokeCap.round;
+  final tailPath = Path()
+    ..moveTo(-size * 0.28, size * 0.08)
+    ..cubicTo(
+      -size * 0.55,
+      size * 0.18,
+      -size * 0.48,
+      -size * 0.32,
+      -size * 0.22,
+      -size * 0.28,
+    );
+  canvas.drawPath(
+    tailPath,
+    Paint()
+      ..color = const Color(0xFFE8A0AA)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = max(1.5, size * 0.055)
+      ..strokeCap = StrokeCap.round,
+  );
+  final bodyRect = Rect.fromCenter(
+    center: Offset(-size * 0.04, 0),
+    width: size * 0.67,
+    height: size * 0.48,
+  );
+  canvas.drawOval(
+      bodyRect.inflate(size * 0.035), Paint()..color = outline.color);
+  canvas.drawOval(bodyRect, Paint()..color = const Color(0xFFA9B4BE));
+  for (final sign in [-1.0, 1.0]) {
+    final earCenter = Offset(size * 0.08, sign * size * 0.2);
+    canvas.drawCircle(earCenter, size * 0.14, Paint()..color = outline.color);
+    canvas.drawCircle(
+      earCenter,
+      size * 0.105,
+      Paint()..color = const Color(0xFFF0A8B1),
+    );
+  }
+  final snout = Path()
+    ..moveTo(size * 0.44, 0)
+    ..lineTo(size * 0.17, -size * 0.19)
+    ..lineTo(size * 0.17, size * 0.19)
+    ..close();
+  canvas.drawPath(snout, Paint()..color = const Color(0xFFCAD2D8));
+  canvas.drawCircle(
+    Offset(size * 0.43, 0),
+    size * 0.055,
+    Paint()..color = const Color(0xFFE87989),
+  );
+  canvas.drawCircle(
+    Offset(size * 0.16, -size * 0.11),
+    size * 0.045,
+    Paint()..color = const Color(0xFF16242B),
+  );
+  for (final sign in [-1.0, 1.0]) {
+    canvas.drawLine(
+      Offset(size * 0.31, sign * size * 0.06),
+      Offset(size * 0.54, sign * size * 0.13),
+      outline,
+    );
+  }
+  canvas.restore();
 }
 
 class _KeyboardHint extends StatelessWidget {

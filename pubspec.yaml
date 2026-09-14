@@ -24,12 +24,6 @@ flutter:
   assets:
     - assets/music/ukulele.mp3
     - assets/sfx/
-    - assets/cats/black.png
-    - assets/cats/red.png
-    - assets/cats/tux.png
-    - assets/heads/classic.png
-    - assets/heads/round.png
-    - assets/heads/pixel.png
 
 flutter_icons:
   android: true
