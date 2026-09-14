@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'dart:ui' as ui;
+import '../audio/web_sfx_engine.dart';
 import '../constants/game_constants.dart';
 
 class GamePage extends StatefulWidget {
@@ -62,6 +63,7 @@ class _GamePageState extends State<GamePage>
   AudioPlayer? _sfxEat;
   AudioPlayer? _sfxMouse;
   AudioPlayer? _sfxOver;
+  final WebSfxEngine _webSfx = WebSfxEngine();
   bool soundOn = true;
 
   // Bonus-Animation (verlängert + Fade)
@@ -179,6 +181,7 @@ class _GamePageState extends State<GamePage>
 
   Future<void> _startGame() async {
     if (_gameStarted) return;
+    if (soundOn) unawaited(_webSfx.unlock());
     setState(() {
       _gameStarted = true;
       paused = false;
@@ -234,6 +237,7 @@ class _GamePageState extends State<GamePage>
     if (paused) {
       await _pauseBgm();
     } else {
+      unawaited(_webSfx.unlock());
       await _startBgmIfAllowed();
     }
   }
@@ -304,6 +308,7 @@ class _GamePageState extends State<GamePage>
 
   void _changeDir(Direction next) {
     if (!_gameStarted) return;
+    if (soundOn) unawaited(_webSfx.unlock());
     // Pro Tick genau eine Richtungsänderung puffern. So kann ein schneller
     // diagonaler Swipe die Katze nicht versehentlich in den Hals drehen.
     if (_pendingDir != null) return;
@@ -672,6 +677,7 @@ class _GamePageState extends State<GamePage>
     // Spielfeld vorbereiten; gestartet wird bewusst über den Start-Button.
     _newGame();
     unawaited(_loadHighScore());
+    unawaited(_initAudio());
   }
 
   @override
@@ -682,6 +688,7 @@ class _GamePageState extends State<GamePage>
     _ambientCtrl.dispose();
     _bonusCtrl.dispose();
     _bgmSub?.cancel();
+    unawaited(_webSfx.dispose());
     for (final player in [_bgm, _sfxEat, _sfxMouse, _sfxOver]) {
       if (player != null) unawaited(_disposeAudioPlayer(player));
     }
@@ -747,6 +754,20 @@ class _GamePageState extends State<GamePage>
   }
 
   void _playSfx(String asset) {
+    if (kIsWeb) {
+      switch (asset) {
+        case 'sfx/eat.wav':
+          _webSfx.playEat();
+          return;
+        case 'sfx/mouse.wav':
+          _webSfx.playMouse();
+          return;
+        default:
+          _webSfx.playGameOver();
+          return;
+      }
+    }
+
     unawaited(() async {
       try {
         final player = switch (asset) {
@@ -1094,12 +1115,14 @@ class _GamePageState extends State<GamePage>
                           ),
                           actionButton(
                             tooltip: 'Sound an/aus',
-                            onPressed: () async {
-                              setState(() => soundOn = !soundOn);
-                              if (soundOn) {
-                                await _startBgmIfAllowed();
+                            onPressed: () {
+                              final enableSound = !soundOn;
+                              setState(() => soundOn = enableSound);
+                              if (enableSound) {
+                                unawaited(_webSfx.unlock());
+                                unawaited(_startBgmIfAllowed());
                               } else {
-                                await _pauseBgm();
+                                unawaited(_pauseBgm());
                               }
                             },
                             icon: soundOn ? Icons.volume_up : Icons.volume_off,
