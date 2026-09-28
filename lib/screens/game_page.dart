@@ -11,6 +11,7 @@ import 'dart:ui' as ui;
 import '../audio/web_sfx_engine.dart';
 import '../constants/game_constants.dart';
 import '../l10n/generated/app_localizations.dart';
+import '../promo/promo_scene.dart';
 import '../services/leaderboard_service.dart';
 
 String _localizedLevelName(AppLocalizations strings, GameLevel level) =>
@@ -31,9 +32,14 @@ String _localizedLevelDescription(
     };
 
 class GamePage extends StatefulWidget {
-  const GamePage({required this.onLocaleChanged, super.key});
+  const GamePage({
+    required this.onLocaleChanged,
+    this.promoScene,
+    super.key,
+  });
 
   final ValueChanged<Locale> onLocaleChanged;
+  final PromoSceneDefinition? promoScene;
 
   @override
   State<GamePage> createState() => _GamePageState();
@@ -102,6 +108,7 @@ class _GamePageState extends State<GamePage>
   late final Animation<double> _bonusOpacity;
   Point<int>? _bonusAt; // Grid-Position des Effekts
   bool _isMouseBonusFx = false;
+  int _promoTick = 0;
 
   CatSkin selectedSkin = CatSkin.red; // Standard-Skin
 
@@ -135,6 +142,30 @@ class _GamePageState extends State<GamePage>
           for (var y = 11; y <= 13; y++) Point<int>(11, y),
         };
     }
+  }
+
+  void _applyPromoScene(PromoSceneDefinition scene) {
+    selectedLevel = scene.level;
+    snake = List.of(scene.snake);
+    _previousSnake = List.of(scene.snake);
+    dir = scene.direction;
+    _directionQueue.clear();
+    food = scene.food;
+    mouse = scene.mouse;
+    score = scene.score;
+    _levelHighScores[scene.level] = scene.score;
+    _roundStartingHighScore = scene.score;
+    obstacles = _obstaclesFor(scene.level);
+    wrapWalls = levelWrapWalls[scene.level]!;
+    tickMs = levelStartSpeed[scene.level]!;
+    _gameStarted = scene.started;
+    paused = false;
+    soundOn = false;
+    _moveCtrl.value = 1;
+    _bonusAt = scene.bonusAt;
+    _isMouseBonusFx = scene.mouseBonus;
+    _promoTick = 0;
+    if (scene.bonusAt != null) _bonusCtrl.value = 0.34;
   }
 
   void _newGame() {
@@ -426,6 +457,17 @@ class _GamePageState extends State<GamePage>
 
   void _tick() {
     if (!mounted || !_gameStarted || paused) return;
+
+    final promoScene = widget.promoScene;
+    if (promoScene?.autoPlay ?? false) {
+      final scriptedDirection = promoScene!.demoTurns[_promoTick];
+      if (scriptedDirection != null && !_isOpposite(dir, scriptedDirection)) {
+        _directionQueue
+          ..clear()
+          ..add(scriptedDirection);
+      }
+      _promoTick += 1;
+    }
 
     if (_directionQueue.isNotEmpty) {
       dir = _directionQueue.removeAt(0);
@@ -944,8 +986,22 @@ class _GamePageState extends State<GamePage>
 
     // Spielfeld vorbereiten; gestartet wird bewusst über den Start-Button.
     _newGame();
-    unawaited(_loadHighScore());
-    unawaited(_initAudio());
+    final promoScene = widget.promoScene;
+    if (promoScene == null) {
+      unawaited(_loadHighScore());
+      unawaited(_initAudio());
+    } else {
+      _applyPromoScene(promoScene);
+      if (promoScene.showGameOver) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) unawaited(_gameOver());
+        });
+      } else if (promoScene.autoPlay) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) unawaited(_startGame());
+        });
+      }
+    }
   }
 
   @override
