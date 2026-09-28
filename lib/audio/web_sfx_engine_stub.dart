@@ -7,5 +7,9 @@ class WebSfxEngine {
 
   void playGameOver() {}
 
+  void startMusic({required int theme, required int variation}) {}
+
+  void pauseMusic() {}
+
   Future<void> dispose() async {}
 }

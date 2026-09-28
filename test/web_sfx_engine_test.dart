@@ -25,7 +25,12 @@ void main() {
     engine.playEat();
     engine.playMouse();
     engine.playGameOver();
+    engine.startMusic(theme: 0, variation: 0);
     await tester.pump(const Duration(seconds: 2));
+    engine.pauseMusic();
+    engine.startMusic(theme: 2, variation: 2);
+    await tester.pump(const Duration(seconds: 2));
+    engine.pauseMusic();
     final disposing = engine.dispose();
     await tester.pump(const Duration(seconds: 2));
     await disposing;

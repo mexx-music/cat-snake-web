@@ -65,6 +65,7 @@ class _GamePageState extends State<GamePage>
   AudioPlayer? _sfxOver;
   final WebSfxEngine _webSfx = WebSfxEngine();
   bool soundOn = true;
+  int _musicVariation = -1;
 
   // Bonus-Animation (verlängert + Fade)
   late final AnimationController _moveCtrl;
@@ -111,6 +112,7 @@ class _GamePageState extends State<GamePage>
 
   void _newGame() {
     _gameTicker?.stop();
+    if (kIsWeb) _webSfx.pauseMusic();
     _lastFrameTime = null;
     _tickElapsedMs = 0;
     score = 0;
@@ -121,6 +123,7 @@ class _GamePageState extends State<GamePage>
     dir = Direction.right;
     _pendingDir = null;
     obstacles = _obstaclesFor(selectedLevel);
+    _musicVariation = _nextMusicVariation();
 
     snake = [
       const Point<int>(cols ~/ 2 - 1, rows ~/ 2),
@@ -137,6 +140,12 @@ class _GamePageState extends State<GamePage>
     _spawnMouse();
 
     setState(() {});
+  }
+
+  int _nextMusicVariation() {
+    if (_musicVariation < 0) return _rand.nextInt(3);
+    // Garantiert eine andere Melodie als in der unmittelbar vorherigen Runde.
+    return (_musicVariation + 1 + _rand.nextInt(2)) % 3;
   }
 
   Future<void> _loadHighScore() async {
@@ -736,6 +745,10 @@ class _GamePageState extends State<GamePage>
 
   Future<void> _initAudio() async {
     if (_audioReady) return;
+    if (kIsWeb) {
+      _audioReady = true;
+      return;
+    }
     try {
       final player = _bgm ??= AudioPlayer();
       await player.setReleaseMode(ReleaseMode.loop);
@@ -750,6 +763,15 @@ class _GamePageState extends State<GamePage>
 
   Future<void> _startBgmIfAllowed() async {
     if (!soundOn) return;
+    if (kIsWeb) {
+      await _webSfx.unlock();
+      if (!soundOn || !_gameStarted || paused) return;
+      _webSfx.startMusic(
+        theme: selectedLevel.index,
+        variation: _musicVariation,
+      );
+      return;
+    }
     if (!_audioReady) await _initAudio();
     if (!_audioReady) return;
     final player = _bgm;
@@ -768,6 +790,10 @@ class _GamePageState extends State<GamePage>
   }
 
   Future<void> _pauseBgm() async {
+    if (kIsWeb) {
+      _webSfx.pauseMusic();
+      return;
+    }
     final player = _bgm;
     if (!_audioReady || player == null) return;
     try {
