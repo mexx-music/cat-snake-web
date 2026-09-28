@@ -29,7 +29,7 @@ class _GamePageState extends State<GamePage>
   List<Point<int>> snake = [];
   List<Point<int>> _previousSnake = [];
   Direction dir = Direction.right;
-  Direction? _pendingDir;
+  final List<Direction> _directionQueue = [];
   Point<int>? food;
 
   // Maus (langsam, bewegt sich selten)
@@ -127,7 +127,7 @@ class _GamePageState extends State<GamePage>
     paused = false;
     wrapWalls = levelWrapWalls[selectedLevel]!;
     dir = Direction.right;
-    _pendingDir = null;
+    _directionQueue.clear();
     obstacles = _obstaclesFor(selectedLevel);
     _musicVariation = _nextMusicVariation();
 
@@ -332,14 +332,35 @@ class _GamePageState extends State<GamePage>
     if (soundOn) unawaited(_webSfx.unlock());
     // Pro Tick genau eine Richtungsänderung puffern. So kann ein schneller
     // diagonaler Swipe die Katze nicht versehentlich in den Hals drehen.
-    if (_pendingDir != null) return;
-    if ((dir == Direction.up && next == Direction.down) ||
-        (dir == Direction.down && next == Direction.up) ||
-        (dir == Direction.left && next == Direction.right) ||
-        (dir == Direction.right && next == Direction.left)) {
-      return;
+    if (_directionQueue.isNotEmpty || _isOpposite(dir, next)) return;
+    setState(() => _directionQueue.add(next));
+  }
+
+  bool _isOpposite(Direction first, Direction second) =>
+      (first == Direction.up && second == Direction.down) ||
+      (first == Direction.down && second == Direction.up) ||
+      (first == Direction.left && second == Direction.right) ||
+      (first == Direction.right && second == Direction.left);
+
+  void _queueCombo(Direction vertical, Direction horizontal) {
+    if (!_gameStarted || _directionQueue.isNotEmpty) return;
+    if (soundOn) unawaited(_webSfx.unlock());
+
+    // Die erste Richtung wird an die aktuelle Laufrichtung angepasst. So ist
+    // z. B. ↗ sowohl von links (hoch, rechts) als auch von unten
+    // (rechts, hoch) möglich, ohne eine verbotene Rückwärtsdrehung.
+    final sequence = _isOpposite(dir, vertical)
+        ? [horizontal, vertical]
+        : [vertical, horizontal];
+    final queued = <Direction>[];
+    var previous = dir;
+    for (final next in sequence) {
+      if (next == previous || _isOpposite(previous, next)) continue;
+      queued.add(next);
+      previous = next;
     }
-    setState(() => _pendingDir = next);
+    if (queued.isEmpty) return;
+    setState(() => _directionQueue.addAll(queued.take(2)));
   }
 
   KeyEventResult _handleKeyEvent(FocusNode node, KeyEvent event) {
@@ -385,8 +406,9 @@ class _GamePageState extends State<GamePage>
   void _tick() {
     if (!mounted || !_gameStarted || paused) return;
 
-    dir = _pendingDir ?? dir;
-    _pendingDir = null;
+    if (_directionQueue.isNotEmpty) {
+      dir = _directionQueue.removeAt(0);
+    }
 
     final head = snake.first;
     Point<int> next;
@@ -1129,6 +1151,22 @@ class _GamePageState extends State<GamePage>
                                     onDown: () => _changeDir(Direction.down),
                                     onLeft: () => _changeDir(Direction.left),
                                     onRight: () => _changeDir(Direction.right),
+                                    onUpLeft: () => _queueCombo(
+                                      Direction.up,
+                                      Direction.left,
+                                    ),
+                                    onUpRight: () => _queueCombo(
+                                      Direction.up,
+                                      Direction.right,
+                                    ),
+                                    onDownLeft: () => _queueCombo(
+                                      Direction.down,
+                                      Direction.left,
+                                    ),
+                                    onDownRight: () => _queueCombo(
+                                      Direction.down,
+                                      Direction.right,
+                                    ),
                                   ),
                           );
 
@@ -3122,6 +3160,10 @@ class _DPad extends StatelessWidget {
   final VoidCallback onDown;
   final VoidCallback onLeft;
   final VoidCallback onRight;
+  final VoidCallback onUpLeft;
+  final VoidCallback onUpRight;
+  final VoidCallback onDownLeft;
+  final VoidCallback onDownRight;
   final double buttonSize;
 
   const _DPad({
@@ -3129,6 +3171,10 @@ class _DPad extends StatelessWidget {
     required this.onDown,
     required this.onLeft,
     required this.onRight,
+    required this.onUpLeft,
+    required this.onUpRight,
+    required this.onDownLeft,
+    required this.onDownRight,
     this.buttonSize = 54,
     super.key,
   });
@@ -3150,11 +3196,32 @@ class _DPad extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            _PawControl(
-              key: const Key('paw-up'),
-              direction: Direction.up,
-              size: buttonSize,
-              onPressed: onUp,
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _ComboPawCell(
+                  key: const Key('combo-up-left'),
+                  angle: -pi / 4,
+                  size: buttonSize,
+                  label: 'Kombi: hoch und links',
+                  onPressed: onUpLeft,
+                ),
+                SizedBox(width: gap),
+                _PawControl(
+                  key: const Key('paw-up'),
+                  direction: Direction.up,
+                  size: buttonSize,
+                  onPressed: onUp,
+                ),
+                SizedBox(width: gap),
+                _ComboPawCell(
+                  key: const Key('combo-up-right'),
+                  angle: pi / 4,
+                  size: buttonSize,
+                  label: 'Kombi: hoch und rechts',
+                  onPressed: onUpRight,
+                ),
+              ],
             ),
             SizedBox(height: gap),
             Row(
@@ -3185,11 +3252,32 @@ class _DPad extends StatelessWidget {
               ],
             ),
             SizedBox(height: gap),
-            _PawControl(
-              key: const Key('paw-down'),
-              direction: Direction.down,
-              size: buttonSize,
-              onPressed: onDown,
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _ComboPawCell(
+                  key: const Key('combo-down-left'),
+                  angle: -3 * pi / 4,
+                  size: buttonSize,
+                  label: 'Kombi: runter und links',
+                  onPressed: onDownLeft,
+                ),
+                SizedBox(width: gap),
+                _PawControl(
+                  key: const Key('paw-down'),
+                  direction: Direction.down,
+                  size: buttonSize,
+                  onPressed: onDown,
+                ),
+                SizedBox(width: gap),
+                _ComboPawCell(
+                  key: const Key('combo-down-right'),
+                  angle: 3 * pi / 4,
+                  size: buttonSize,
+                  label: 'Kombi: runter und rechts',
+                  onPressed: onDownRight,
+                ),
+              ],
             ),
           ],
         ),
@@ -3257,20 +3345,77 @@ class _PawControl extends StatelessWidget {
   }
 }
 
-class _PawButtonPainter extends CustomPainter {
-  final Direction direction;
+class _ComboPawCell extends StatelessWidget {
+  const _ComboPawCell({
+    required this.angle,
+    required this.size,
+    required this.label,
+    required this.onPressed,
+    super.key,
+  });
 
-  const _PawButtonPainter(this.direction);
+  final double angle;
+  final double size;
+  final String label;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final pawSize = size * 0.72;
+    return SizedBox.square(
+      dimension: size,
+      child: Center(
+        child: Semantics(
+          button: true,
+          label: label,
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: onPressed,
+              customBorder: const CircleBorder(),
+              splashColor: const Color(0xFFFFE7C2).withValues(alpha: 0.25),
+              child: SizedBox.square(
+                dimension: pawSize,
+                child: CustomPaint(
+                  painter: _PawButtonPainter.rotated(angle),
+                  child: Center(
+                    child: Transform.rotate(
+                      angle: angle,
+                      child: Icon(
+                        Icons.arrow_upward_rounded,
+                        size: pawSize * 0.44,
+                        color: const Color(0xFF18343C),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PawButtonPainter extends CustomPainter {
+  final Direction? direction;
+  final double? rotation;
+
+  const _PawButtonPainter(this.direction) : rotation = null;
+
+  const _PawButtonPainter.rotated(this.rotation) : direction = null;
 
   @override
   void paint(Canvas canvas, Size size) {
     final center = size.center(Offset.zero);
-    final angle = switch (direction) {
-      Direction.up => 0.0,
-      Direction.right => pi / 2,
-      Direction.down => pi,
-      Direction.left => -pi / 2,
-    };
+    final angle = rotation ??
+        switch (direction!) {
+          Direction.up => 0.0,
+          Direction.right => pi / 2,
+          Direction.down => pi,
+          Direction.left => -pi / 2,
+        };
     canvas.save();
     canvas.translate(center.dx, center.dy);
     canvas.rotate(angle);
@@ -3307,5 +3452,5 @@ class _PawButtonPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _PawButtonPainter oldDelegate) =>
-      oldDelegate.direction != direction;
+      oldDelegate.direction != direction || oldDelegate.rotation != rotation;
 }

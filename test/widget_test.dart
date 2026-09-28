@@ -127,6 +127,10 @@ void main() {
       tester.getSize(find.byKey(const Key('paw-up'))).width,
       greaterThanOrEqualTo(58),
     );
+    expect(find.byKey(const Key('combo-up-left')), findsOneWidget);
+    expect(find.byKey(const Key('combo-up-right')), findsOneWidget);
+    expect(find.byKey(const Key('combo-down-left')), findsOneWidget);
+    expect(find.byKey(const Key('combo-down-right')), findsOneWidget);
 
     await tester.tap(find.byKey(const Key('level-button')));
     await tester.pump();
@@ -134,6 +138,42 @@ void main() {
     expect(find.text('Ab 100 Punkten'), findsOneWidget);
     expect(find.text('Ab 250 Punkten'), findsOneWidget);
     expect(find.byIcon(Icons.lock), findsNWidgets(2));
+
+    debugDefaultTargetPlatformOverride = null;
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('combo paw queues two safe turns', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    debugDefaultTargetPlatformOverride = TargetPlatform.android;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    await tester.binding.setSurfaceSize(const Size(844, 390));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(const CatSnakeApp());
+    await tester.pump();
+    await tester.tap(find.byTooltip('Sound an/aus'));
+    await tester.tap(find.byKey(const Key('start-button')));
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('combo-up-right')));
+
+    dynamic boardPainter() => tester
+        .widgetList<CustomPaint>(find.byType(CustomPaint))
+        .singleWhere(
+          (paint) => paint.painter.runtimeType.toString() == '_BoardPainter',
+        )
+        .painter;
+
+    for (var i = 0; i < 5; i++) {
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+    expect(boardPainter().direction.toString(), 'Direction.up');
+
+    for (var i = 0; i < 4; i++) {
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+    expect(boardPainter().direction.toString(), 'Direction.right');
+    expect(tester.takeException(), isNull);
 
     debugDefaultTargetPlatformOverride = null;
     await tester.pumpWidget(const SizedBox.shrink());
