@@ -3373,7 +3373,8 @@ class _ComboPawCell extends StatelessWidget {
             child: InkWell(
               onTap: onPressed,
               customBorder: const CircleBorder(),
-              splashColor: const Color(0xFFFFE7C2).withValues(alpha: 0.25),
+              splashColor: const Color(0xFFFFD166).withValues(alpha: 0.48),
+              highlightColor: const Color(0xFFFFD166).withValues(alpha: 0.18),
               child: SizedBox.square(
                 dimension: pawSize,
                 child: CustomPaint(
@@ -3384,7 +3385,7 @@ class _ComboPawCell extends StatelessWidget {
                       child: Icon(
                         Icons.arrow_upward_rounded,
                         size: pawSize * 0.44,
-                        color: const Color(0xFF18343C),
+                        color: const Color(0xFF123E45),
                       ),
                     ),
                   ),
@@ -3401,10 +3402,15 @@ class _ComboPawCell extends StatelessWidget {
 class _PawButtonPainter extends CustomPainter {
   final Direction? direction;
   final double? rotation;
+  final bool isCombo;
 
-  const _PawButtonPainter(this.direction) : rotation = null;
+  const _PawButtonPainter(this.direction)
+      : rotation = null,
+        isCombo = false;
 
-  const _PawButtonPainter.rotated(this.rotation) : direction = null;
+  const _PawButtonPainter.rotated(this.rotation)
+      : direction = null,
+        isCombo = true;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -3421,16 +3427,21 @@ class _PawButtonPainter extends CustomPainter {
     canvas.rotate(angle);
 
     final glow = Paint()
-      ..color = const Color(0xFFFFBE77).withValues(alpha: 0.12)
+      ..color = (isCombo ? const Color(0xFF6CD0BE) : const Color(0xFFFFBE77))
+          .withValues(alpha: isCombo ? 0.22 : 0.12)
       ..maskFilter = MaskFilter.blur(BlurStyle.normal, size.width * 0.09);
     canvas.drawCircle(Offset.zero, size.width * 0.43, glow);
 
-    final outline = Paint()..color = const Color(0xFF9C563F);
+    final outline = Paint()
+      ..color = isCombo ? const Color(0xFF2F8075) : const Color(0xFF9C563F);
+    final padColors = isCombo
+        ? const [Color(0xFFB7F1E4), Color(0xFF58BDAE)]
+        : const [Color(0xFFFFD49A), Color(0xFFE98572)];
     final pad = Paint()
-      ..shader = const LinearGradient(
+      ..shader = LinearGradient(
         begin: Alignment.topLeft,
         end: Alignment.bottomRight,
-        colors: [Color(0xFFFFD49A), Color(0xFFE98572)],
+        colors: padColors,
       ).createShader(Rect.fromLTWH(
           -size.width / 2, -size.height / 2, size.width, size.height));
 
@@ -3452,5 +3463,7 @@ class _PawButtonPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _PawButtonPainter oldDelegate) =>
-      oldDelegate.direction != direction || oldDelegate.rotation != rotation;
+      oldDelegate.direction != direction ||
+      oldDelegate.rotation != rotation ||
+      oldDelegate.isCombo != isCombo;
 }
