@@ -26,6 +26,11 @@ void main() {
     expect(find.byKey(const Key('dpad')), findsNothing);
     expect(find.byKey(const Key('keyboard-hint')), findsOneWidget);
     expect(find.text('Steuerung: Pfeiltasten'), findsOneWidget);
+    expect(find.text('Mit den Pfoten – äh, Pfeiltasten'), findsOneWidget);
+    expect(
+      tester.getSize(find.byKey(const Key('keycap-up'))).width,
+      greaterThanOrEqualTo(44),
+    );
     expect(find.text('Highscore: 120'), findsOneWidget);
     expect(find.byKey(const Key('start-button')), findsOneWidget);
     expect(find.byKey(const Key('level-button')), findsOneWidget);
@@ -107,6 +112,10 @@ void main() {
     expect(find.byKey(const Key('dpad')), findsOneWidget);
     expect(find.byKey(const Key('keyboard-hint')), findsNothing);
     expect(find.text('Highscore: 0'), findsOneWidget);
+    expect(
+      tester.getSize(find.byKey(const Key('paw-up'))).width,
+      greaterThanOrEqualTo(58),
+    );
 
     await tester.tap(find.byKey(const Key('level-button')));
     await tester.pump();

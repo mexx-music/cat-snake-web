@@ -466,9 +466,24 @@ class _GamePageState extends State<GamePage>
       context: context,
       barrierDismissible: false,
       builder: (ctx) => AlertDialog(
-        title: const Text('Game Over'),
+        backgroundColor: const Color(0xFF18343C),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(24),
+          side: const BorderSide(color: Color(0x66FFBE77)),
+        ),
+        title: const Row(
+          children: [
+            Icon(Icons.pets, color: Color(0xFFFFBE77)),
+            SizedBox(width: 10),
+            Text(
+              'Miau – Runde vorbei!',
+              style: TextStyle(color: Color(0xFFFFE7C2)),
+            ),
+          ],
+        ),
         content: Text(
           '${levelName[finishedLevel]}\nScore: $score\nLevel-Highscore: $highScore',
+          style: const TextStyle(color: Colors.white70, height: 1.45),
         ),
         actions: [
           if (canContinue)
@@ -478,7 +493,10 @@ class _GamePageState extends State<GamePage>
                 selectedLevel = nextLevel;
                 _newGame();
               },
-              icon: const Icon(Icons.arrow_forward),
+              style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFFE98572),
+              ),
+              icon: const Icon(Icons.pets),
               label: Text('Weiter: ${levelName[nextLevel]}'),
             ),
           TextButton(
@@ -486,6 +504,9 @@ class _GamePageState extends State<GamePage>
               Navigator.of(ctx).pop();
               _newGame();
             },
+            style: TextButton.styleFrom(
+              foregroundColor: const Color(0xFFFFE7C2),
+            ),
             child: const Text('Zum Start'),
           ),
         ],
@@ -512,7 +533,7 @@ class _GamePageState extends State<GamePage>
   Future<void> _pickSkin() async {
     final choice = await showModalBottomSheet<CatSkin?>(
       context: context,
-      backgroundColor: Colors.black.withValues(alpha: 0.7),
+      backgroundColor: const Color(0xFF18343C),
       barrierColor: Colors.black54,
       builder: (_) {
         Widget tile(String label, CatSkin skin) {
@@ -526,7 +547,8 @@ class _GamePageState extends State<GamePage>
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
                     border: Border.all(
-                      color: isSel ? Colors.tealAccent : Colors.transparent,
+                      color:
+                          isSel ? const Color(0xFFFFBE77) : Colors.transparent,
                       width: 2,
                     ),
                     borderRadius: BorderRadius.circular(12),
@@ -583,6 +605,8 @@ class _GamePageState extends State<GamePage>
             children: [
               Row(
                 children: [
+                  const Icon(Icons.pets, color: Color(0xFFFFBE77)),
+                  const SizedBox(width: 8),
                   const Expanded(
                     child: Text(
                       'Level wählen',
@@ -595,7 +619,7 @@ class _GamePageState extends State<GamePage>
                   ),
                   Text(
                     'Bester Score: $_bestEver',
-                    style: const TextStyle(color: Colors.amberAccent),
+                    style: const TextStyle(color: Color(0xFFFFD166)),
                   ),
                 ],
               ),
@@ -796,9 +820,34 @@ class _GamePageState extends State<GamePage>
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Cat Snake'),
+        title: const Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.pets, color: Color(0xFFFFBE77), size: 22),
+            SizedBox(width: 8),
+            Text(
+              'Cat Snake',
+              style: TextStyle(
+                fontWeight: FontWeight.w800,
+                letterSpacing: 0.4,
+              ),
+            ),
+            SizedBox(width: 8),
+            Icon(Icons.pets, color: Color(0xFFE98572), size: 15),
+          ],
+        ),
         centerTitle: true,
-        toolbarHeight: 48,
+        toolbarHeight: 52,
+        flexibleSpace: const DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [Color(0xFF18343C), Color(0xFF285760)],
+            ),
+          ),
+        ),
+        shape: const Border(
+          bottom: BorderSide(color: Color(0x556CD0BE)),
+        ),
       ),
       body: Focus(
         autofocus: true,
@@ -820,6 +869,11 @@ class _GamePageState extends State<GamePage>
                       ],
                     ),
                   ),
+                ),
+              ),
+              const Positioned.fill(
+                child: IgnorePointer(
+                  child: CustomPaint(painter: _CatBackdropPainter()),
                 ),
               ),
               Padding(
@@ -850,7 +904,7 @@ class _GamePageState extends State<GamePage>
                                   )
                                 : _DPad(
                                     key: const Key('dpad'),
-                                    buttonSize: useSideControls ? 54 : 50,
+                                    buttonSize: useSideControls ? 62 : 58,
                                     onUp: () => _changeDir(Direction.up),
                                     onDown: () => _changeDir(Direction.down),
                                     onLeft: () => _changeDir(Direction.left),
@@ -935,53 +989,84 @@ class _GamePageState extends State<GamePage>
                           child: ColoredBox(
                             color: Colors.black.withValues(alpha: 0.58),
                             child: Center(
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  const Icon(
-                                    Icons.pets,
-                                    color: Colors.white,
-                                    size: 42,
-                                  ),
-                                  const SizedBox(height: 10),
-                                  OutlinedButton.icon(
-                                    key: const Key('level-button'),
-                                    onPressed: _pickLevel,
-                                    icon: Icon(_levelIcon(selectedLevel)),
-                                    label: Text(
-                                      'Level: ${levelName[selectedLevel]}',
-                                    ),
-                                    style: OutlinedButton.styleFrom(
-                                      foregroundColor: Colors.white,
-                                      side: const BorderSide(
-                                        color: Colors.white70,
+                              child: FittedBox(
+                                fit: BoxFit.scaleDown,
+                                child: Padding(
+                                  padding: const EdgeInsets.all(10),
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      CustomPaint(
+                                        painter:
+                                            _CatPreviewPainter(selectedSkin),
+                                        size: const Size.square(58),
                                       ),
-                                    ),
-                                  ),
-                                  const SizedBox(height: 8),
-                                  FilledButton.icon(
-                                    key: const Key('start-button'),
-                                    onPressed: _startGame,
-                                    icon: const Icon(Icons.play_arrow),
-                                    label: const Text('Spiel starten'),
-                                    style: FilledButton.styleFrom(
-                                      backgroundColor: Colors.teal,
-                                      foregroundColor: Colors.white,
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 22,
-                                        vertical: 14,
+                                      const SizedBox(height: 4),
+                                      const Text(
+                                        'Bereit zur Mäusejagd?',
+                                        style: TextStyle(
+                                          color: Color(0xFFFFE7C2),
+                                          fontSize: 18,
+                                          fontWeight: FontWeight.w800,
+                                        ),
                                       ),
-                                    ),
+                                      const SizedBox(height: 2),
+                                      const Text(
+                                        'Fische schnappen · Mäuse erwischen',
+                                        style: TextStyle(
+                                          color: Colors.white60,
+                                          fontSize: 11,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 8),
+                                      OutlinedButton.icon(
+                                        key: const Key('level-button'),
+                                        onPressed: _pickLevel,
+                                        icon: Icon(_levelIcon(selectedLevel)),
+                                        label: Text(
+                                          'Level: ${levelName[selectedLevel]}',
+                                        ),
+                                        style: OutlinedButton.styleFrom(
+                                          foregroundColor:
+                                              const Color(0xFFFFE7C2),
+                                          side: const BorderSide(
+                                            color: Color(0xAAFFBE77),
+                                          ),
+                                          backgroundColor: const Color(
+                                            0x2218343C,
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(height: 7),
+                                      FilledButton.icon(
+                                        key: const Key('start-button'),
+                                        onPressed: _startGame,
+                                        icon: const Icon(Icons.pets),
+                                        label: const Text('Spiel starten'),
+                                        style: FilledButton.styleFrom(
+                                          backgroundColor:
+                                              const Color(0xFFE98572),
+                                          foregroundColor: Colors.white,
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 24,
+                                            vertical: 13,
+                                          ),
+                                          textStyle: const TextStyle(
+                                            fontWeight: FontWeight.w700,
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(height: 6),
+                                      const Text(
+                                        'Computer: Leertaste oder Enter',
+                                        style: TextStyle(
+                                          color: Colors.white60,
+                                          fontSize: 11,
+                                        ),
+                                      ),
+                                    ],
                                   ),
-                                  const SizedBox(height: 8),
-                                  const Text(
-                                    'Computer: Leertaste oder Enter',
-                                    style: TextStyle(
-                                      color: Colors.white70,
-                                      fontSize: 12,
-                                    ),
-                                  ),
-                                ],
+                                ),
                               ),
                             ),
                           ),
@@ -1012,12 +1097,20 @@ class _GamePageState extends State<GamePage>
           required VoidCallback? onPressed,
           Color? color,
         }) {
-          return IconButton(
-            tooltip: tooltip,
-            constraints: iconConstraints,
-            visualDensity: VisualDensity.compact,
-            onPressed: onPressed,
-            icon: Icon(icon, color: color),
+          return Container(
+            margin: const EdgeInsets.symmetric(horizontal: 2),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.075),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: Colors.white10),
+            ),
+            child: IconButton(
+              tooltip: tooltip,
+              constraints: iconConstraints,
+              visualDensity: VisualDensity.compact,
+              onPressed: onPressed,
+              icon: Icon(icon, color: color),
+            ),
           );
         }
 
@@ -1026,8 +1119,13 @@ class _GamePageState extends State<GamePage>
           child: BackdropFilter(
             filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              color: Colors.black.withValues(alpha: 0.35),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+              decoration: BoxDecoration(
+                color: const Color(0xFF112B32).withValues(alpha: 0.82),
+                border: Border.all(
+                  color: const Color(0xFFFFBE77).withValues(alpha: 0.18),
+                ),
+              ),
               child: IconTheme(
                 data: const IconThemeData(color: Colors.white),
                 child: DefaultTextStyle.merge(
@@ -1040,7 +1138,11 @@ class _GamePageState extends State<GamePage>
                           alignment: Alignment.centerLeft,
                           child: Row(
                             children: [
-                              const Icon(Icons.stars, size: 18),
+                              const Icon(
+                                Icons.pets,
+                                size: 18,
+                                color: Color(0xFFFFBE77),
+                              ),
                               const SizedBox(width: 6),
                               Text(
                                 'Score: $score',
@@ -1052,7 +1154,7 @@ class _GamePageState extends State<GamePage>
                               const Icon(
                                 Icons.emoji_events,
                                 size: 18,
-                                color: Colors.amberAccent,
+                                color: Color(0xFFFFD166),
                               ),
                               const SizedBox(width: 5),
                               Text(
@@ -1060,7 +1162,7 @@ class _GamePageState extends State<GamePage>
                                 key: const Key('high-score-value'),
                                 style: const TextStyle(
                                   fontWeight: FontWeight.w600,
-                                  color: Colors.amberAccent,
+                                  color: Color(0xFFFFD166),
                                 ),
                               ),
                               const SizedBox(width: 14),
@@ -1140,7 +1242,7 @@ class _GamePageState extends State<GamePage>
                               icon: const Icon(Icons.refresh),
                               label: const Text('Neu'),
                               style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.teal,
+                                backgroundColor: const Color(0xFFE98572),
                                 foregroundColor: Colors.white,
                                 elevation: 0,
                                 shape: const StadiumBorder(),
@@ -1203,7 +1305,7 @@ class _GamePageState extends State<GamePage>
                         vertical: 8,
                       ),
                       decoration: BoxDecoration(
-                        color: Colors.teal,
+                        color: const Color(0xFFE98572),
                         borderRadius: BorderRadius.circular(20),
                         boxShadow: [
                           BoxShadow(
@@ -1260,7 +1362,7 @@ class _LevelCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final accent = selected ? Colors.tealAccent : Colors.white38;
+    final accent = selected ? const Color(0xFFFFBE77) : Colors.white30;
     return Material(
       color: unlocked
           ? Colors.white.withValues(alpha: selected ? 0.14 : 0.07)
@@ -1280,7 +1382,7 @@ class _LevelCard extends StatelessWidget {
             children: [
               Icon(
                 unlocked ? icon : Icons.lock,
-                color: unlocked ? Colors.tealAccent : Colors.white38,
+                color: unlocked ? const Color(0xFFFFBE77) : Colors.white38,
                 size: 27,
               ),
               const SizedBox(height: 5),
@@ -1305,7 +1407,7 @@ class _LevelCard extends StatelessWidget {
               Text(
                 'Highscore: $highScore',
                 style: TextStyle(
-                  color: unlocked ? Colors.amberAccent : Colors.white30,
+                  color: unlocked ? const Color(0xFFFFD166) : Colors.white30,
                   fontSize: 10.5,
                 ),
               ),
@@ -2342,57 +2444,140 @@ void _paintCartoonMouse(
   canvas.restore();
 }
 
+class _CatBackdropPainter extends CustomPainter {
+  const _CatBackdropPainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final pawColor = const Color(0xFFFFE7C2).withValues(alpha: 0.045);
+    for (final paw in [
+      (Offset(size.width * 0.08, size.height * 0.2), -0.35, 46.0),
+      (Offset(size.width * 0.91, size.height * 0.14), 0.42, 38.0),
+      (Offset(size.width * 0.9, size.height * 0.82), -0.55, 52.0),
+      (Offset(size.width * 0.12, size.height * 0.88), 0.35, 34.0),
+    ]) {
+      _paintPawPrint(canvas, paw.$1, paw.$3, paw.$2, pawColor);
+    }
+
+    final yarnColor = const Color(0xFFE98572).withValues(alpha: 0.07);
+    final yarnPath = Path()
+      ..moveTo(size.width * 0.68, size.height * 0.04)
+      ..cubicTo(
+        size.width * 0.61,
+        size.height * 0.24,
+        size.width * 0.78,
+        size.height * 0.31,
+        size.width * 0.72,
+        size.height * 0.47,
+      )
+      ..cubicTo(
+        size.width * 0.67,
+        size.height * 0.61,
+        size.width * 0.83,
+        size.height * 0.68,
+        size.width * 0.78,
+        size.height * 0.88,
+      );
+    canvas.drawPath(
+      yarnPath,
+      Paint()
+        ..color = yarnColor
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.2
+        ..strokeCap = StrokeCap.round,
+    );
+    final ballCenter = Offset(size.width * 0.79, size.height * 0.9);
+    canvas.drawCircle(ballCenter, 17, Paint()..color = yarnColor);
+    canvas.drawArc(
+      Rect.fromCircle(center: ballCenter, radius: 11),
+      -0.8,
+      4.4,
+      false,
+      Paint()
+        ..color = Colors.white.withValues(alpha: 0.055)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.5,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
 class _KeyboardHint extends StatelessWidget {
   const _KeyboardHint({super.key});
 
   @override
   Widget build(BuildContext context) {
-    Widget keyCap(IconData icon) => Container(
-          width: 34,
-          height: 30,
-          decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.09),
-            borderRadius: BorderRadius.circular(7),
-            border: Border.all(color: Colors.white24),
-          ),
-          child: Icon(icon, size: 20, color: Colors.white70),
-        );
+    const keySize = 45.0;
 
     return Semantics(
       label: 'Steuerung mit den Pfeiltasten',
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         decoration: BoxDecoration(
-          color: Colors.black.withValues(alpha: 0.2),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: Colors.white12),
+          color: const Color(0xFF112B32).withValues(alpha: 0.62),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: const Color(0xFFFFBE77).withValues(alpha: 0.18),
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.16),
+              blurRadius: 12,
+              offset: const Offset(0, 5),
+            ),
+          ],
         ),
-        child: Column(
+        child: const Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             Row(
               mainAxisSize: MainAxisSize.min,
-              children: [keyCap(Icons.keyboard_arrow_up)],
+              children: [
+                _PawControl(
+                  key: Key('keycap-up'),
+                  direction: Direction.up,
+                  size: keySize,
+                ),
+              ],
             ),
-            const SizedBox(height: 4),
+            SizedBox(height: 3),
             Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                keyCap(Icons.keyboard_arrow_left),
-                const SizedBox(width: 4),
-                keyCap(Icons.keyboard_arrow_down),
-                const SizedBox(width: 4),
-                keyCap(Icons.keyboard_arrow_right),
+                _PawControl(
+                  key: Key('keycap-left'),
+                  direction: Direction.left,
+                  size: keySize,
+                ),
+                SizedBox(width: 3),
+                _PawControl(
+                  key: Key('keycap-down'),
+                  direction: Direction.down,
+                  size: keySize,
+                ),
+                SizedBox(width: 3),
+                _PawControl(
+                  key: Key('keycap-right'),
+                  direction: Direction.right,
+                  size: keySize,
+                ),
               ],
             ),
-            const SizedBox(height: 10),
-            const Text(
-              'Steuerung: Pfeiltasten',
+            SizedBox(height: 8),
+            Text(
+              'Mit den Pfoten – äh, Pfeiltasten',
               style: TextStyle(
-                color: Colors.white70,
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
+                color: Color(0xFFFFE7C2),
+                fontSize: 11.5,
+                fontWeight: FontWeight.w700,
               ),
+            ),
+            SizedBox(height: 2),
+            Text(
+              'Steuerung: Pfeiltasten',
+              style: TextStyle(color: Colors.white54, fontSize: 10),
             ),
           ],
         ),
@@ -2419,45 +2604,177 @@ class _DPad extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final btnStyle = ElevatedButton.styleFrom(
-      minimumSize: Size.square(buttonSize),
-      shape: const CircleBorder(),
-      padding: EdgeInsets.zero,
-      tapTargetSize: MaterialTapTargetSize.padded,
-    );
-    return SizedBox(
-      width: buttonSize * 3.6,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-            ElevatedButton(
-                onPressed: onUp,
-                style: btnStyle,
-                child: Icon(Icons.keyboard_arrow_up, size: buttonSize * 0.58)),
-          ]),
-          Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-            ElevatedButton(
-                onPressed: onLeft,
-                style: btnStyle,
-                child:
-                    Icon(Icons.keyboard_arrow_left, size: buttonSize * 0.58)),
-            SizedBox(width: buttonSize * 0.45),
-            ElevatedButton(
-                onPressed: onRight,
-                style: btnStyle,
-                child:
-                    Icon(Icons.keyboard_arrow_right, size: buttonSize * 0.58)),
-          ]),
-          Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-            ElevatedButton(
-                onPressed: onDown,
-                style: btnStyle,
-                child:
-                    Icon(Icons.keyboard_arrow_down, size: buttonSize * 0.58)),
-          ]),
-        ],
+    final gap = buttonSize * 0.08;
+    return Semantics(
+      label: 'Pfoten-Steuerkreuz',
+      child: Container(
+        padding: EdgeInsets.all(buttonSize * 0.12),
+        decoration: BoxDecoration(
+          color: const Color(0xFF112B32).withValues(alpha: 0.45),
+          borderRadius: BorderRadius.circular(26),
+          border: Border.all(
+            color: const Color(0xFFFFBE77).withValues(alpha: 0.16),
+          ),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _PawControl(
+              key: const Key('paw-up'),
+              direction: Direction.up,
+              size: buttonSize,
+              onPressed: onUp,
+            ),
+            SizedBox(height: gap),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _PawControl(
+                  key: const Key('paw-left'),
+                  direction: Direction.left,
+                  size: buttonSize,
+                  onPressed: onLeft,
+                ),
+                SizedBox(width: gap),
+                SizedBox.square(
+                  dimension: buttonSize,
+                  child: Icon(
+                    Icons.pets,
+                    size: buttonSize * 0.45,
+                    color: const Color(0xFFFFBE77).withValues(alpha: 0.26),
+                  ),
+                ),
+                SizedBox(width: gap),
+                _PawControl(
+                  key: const Key('paw-right'),
+                  direction: Direction.right,
+                  size: buttonSize,
+                  onPressed: onRight,
+                ),
+              ],
+            ),
+            SizedBox(height: gap),
+            _PawControl(
+              key: const Key('paw-down'),
+              direction: Direction.down,
+              size: buttonSize,
+              onPressed: onDown,
+            ),
+          ],
+        ),
       ),
     );
   }
+}
+
+class _PawControl extends StatelessWidget {
+  final Direction direction;
+  final double size;
+  final VoidCallback? onPressed;
+
+  const _PawControl({
+    required this.direction,
+    required this.size,
+    this.onPressed,
+    super.key,
+  });
+
+  IconData get _icon => switch (direction) {
+        Direction.up => Icons.keyboard_arrow_up_rounded,
+        Direction.down => Icons.keyboard_arrow_down_rounded,
+        Direction.left => Icons.keyboard_arrow_left_rounded,
+        Direction.right => Icons.keyboard_arrow_right_rounded,
+      };
+
+  String get _label => switch (direction) {
+        Direction.up => 'Nach oben',
+        Direction.down => 'Nach unten',
+        Direction.left => 'Nach links',
+        Direction.right => 'Nach rechts',
+      };
+
+  @override
+  Widget build(BuildContext context) {
+    final visual = SizedBox.square(
+      dimension: size,
+      child: CustomPaint(
+        painter: _PawButtonPainter(direction),
+        child: Center(
+          child: Icon(
+            _icon,
+            size: size * 0.5,
+            color: const Color(0xFF18343C),
+          ),
+        ),
+      ),
+    );
+
+    if (onPressed == null) return visual;
+    return Semantics(
+      button: true,
+      label: _label,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onPressed,
+          customBorder: const CircleBorder(),
+          splashColor: const Color(0xFFFFE7C2).withValues(alpha: 0.25),
+          child: visual,
+        ),
+      ),
+    );
+  }
+}
+
+class _PawButtonPainter extends CustomPainter {
+  final Direction direction;
+
+  const _PawButtonPainter(this.direction);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = size.center(Offset.zero);
+    final angle = switch (direction) {
+      Direction.up => 0.0,
+      Direction.right => pi / 2,
+      Direction.down => pi,
+      Direction.left => -pi / 2,
+    };
+    canvas.save();
+    canvas.translate(center.dx, center.dy);
+    canvas.rotate(angle);
+
+    final glow = Paint()
+      ..color = const Color(0xFFFFBE77).withValues(alpha: 0.12)
+      ..maskFilter = MaskFilter.blur(BlurStyle.normal, size.width * 0.09);
+    canvas.drawCircle(Offset.zero, size.width * 0.43, glow);
+
+    final outline = Paint()..color = const Color(0xFF9C563F);
+    final pad = Paint()
+      ..shader = const LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [Color(0xFFFFD49A), Color(0xFFE98572)],
+      ).createShader(Rect.fromLTWH(
+          -size.width / 2, -size.height / 2, size.width, size.height));
+
+    final mainRect = Rect.fromCenter(
+      center: Offset(0, size.height * 0.085),
+      width: size.width * 0.62,
+      height: size.height * 0.52,
+    );
+    canvas.drawOval(mainRect.inflate(size.width * 0.045), outline);
+    canvas.drawOval(mainRect, pad);
+
+    for (final toe in const [-0.27, 0.0, 0.27]) {
+      final toeCenter = Offset(size.width * toe, -size.height * 0.28);
+      canvas.drawCircle(toeCenter, size.width * 0.15, outline);
+      canvas.drawCircle(toeCenter, size.width * 0.115, pad);
+    }
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(covariant _PawButtonPainter oldDelegate) =>
+      oldDelegate.direction != direction;
 }
