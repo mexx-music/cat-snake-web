@@ -10,10 +10,30 @@ import 'package:audioplayers/audioplayers.dart';
 import 'dart:ui' as ui;
 import '../audio/web_sfx_engine.dart';
 import '../constants/game_constants.dart';
+import '../l10n/generated/app_localizations.dart';
 import '../services/leaderboard_service.dart';
 
+String _localizedLevelName(AppLocalizations strings, GameLevel level) =>
+    switch (level) {
+      GameLevel.meadow => strings.meadow,
+      GameLevel.livingRoom => strings.livingRoom,
+      GameLevel.garden => strings.garden,
+    };
+
+String _localizedLevelDescription(
+  AppLocalizations strings,
+  GameLevel level,
+) =>
+    switch (level) {
+      GameLevel.meadow => strings.meadowDescription,
+      GameLevel.livingRoom => strings.livingRoomDescription,
+      GameLevel.garden => strings.gardenDescription,
+    };
+
 class GamePage extends StatefulWidget {
-  const GamePage({super.key});
+  const GamePage({required this.onLocaleChanged, super.key});
+
+  final ValueChanged<Locale> onLocaleChanged;
 
   @override
   State<GamePage> createState() => _GamePageState();
@@ -21,6 +41,7 @@ class GamePage extends StatefulWidget {
 
 class _GamePageState extends State<GamePage>
     with TickerProviderStateMixin, WidgetsBindingObserver {
+  AppLocalizations get _strings => AppLocalizations.of(context);
   // Spielfeld
   static const int rows = 16;
   static const int cols = 22;
@@ -514,6 +535,7 @@ class _GamePageState extends State<GamePage>
         ? GameLevel.values[nextIndex]
         : null;
     final canContinue = nextLevel != null && _isLevelUnlocked(nextLevel);
+    final strings = _strings;
 
     await showDialog<void>(
       context: context,
@@ -524,21 +546,21 @@ class _GamePageState extends State<GamePage>
           borderRadius: BorderRadius.circular(24),
           side: const BorderSide(color: Color(0x66FFBE77)),
         ),
-        title: const Row(
+        title: Row(
           children: [
-            Icon(Icons.pets, color: Color(0xFFFFBE77)),
-            SizedBox(width: 10),
+            const Icon(Icons.pets, color: Color(0xFFFFBE77)),
+            const SizedBox(width: 10),
             Text(
-              'Miau – Runde vorbei!',
-              style: TextStyle(color: Color(0xFFFFE7C2)),
+              strings.gameOverTitle,
+              style: const TextStyle(color: Color(0xFFFFE7C2)),
             ),
           ],
         ),
         content: Text(
-          '${levelName[finishedLevel]}\n'
-          'Score: $finalScore\n'
-          'Level-Highscore: ${_levelHighScores[finishedLevel]}'
-          '${submittedGlobally ? '\nWeltweit eingetragen ✓' : ''}',
+          '${_localizedLevelName(strings, finishedLevel)}\n'
+          '${strings.score}: $finalScore\n'
+          '${strings.levelHighScore}: ${_levelHighScores[finishedLevel]}'
+          '${submittedGlobally ? '\n${strings.globalSubmitted}' : ''}',
           style: const TextStyle(color: Colors.white70, height: 1.45),
         ),
         actions: [
@@ -553,7 +575,10 @@ class _GamePageState extends State<GamePage>
                 backgroundColor: const Color(0xFFE98572),
               ),
               icon: const Icon(Icons.pets),
-              label: Text('Weiter: ${levelName[nextLevel]}'),
+              label: Text(
+                '${strings.continueLabel}: '
+                '${_localizedLevelName(strings, nextLevel)}',
+              ),
             ),
           TextButton(
             onPressed: () {
@@ -563,7 +588,7 @@ class _GamePageState extends State<GamePage>
             style: TextButton.styleFrom(
               foregroundColor: const Color(0xFFFFE7C2),
             ),
-            child: const Text('Zum Start'),
+            child: Text(strings.backToStart),
           ),
         ],
       ),
@@ -577,6 +602,7 @@ class _GamePageState extends State<GamePage>
   ) async {
     if (!_leaderboard.isAvailable || !mounted) return false;
 
+    final strings = _strings;
     final controller = TextEditingController(text: _playerName);
     var canSubmit = controller.text.trim().isNotEmpty;
     final name = await showDialog<String>(
@@ -590,14 +616,14 @@ class _GamePageState extends State<GamePage>
             borderRadius: BorderRadius.circular(24),
             side: const BorderSide(color: Color(0x88FFD166)),
           ),
-          title: const Row(
+          title: Row(
             children: [
-              Icon(Icons.emoji_events, color: Color(0xFFFFD166)),
-              SizedBox(width: 10),
+              const Icon(Icons.emoji_events, color: Color(0xFFFFD166)),
+              const SizedBox(width: 10),
               Expanded(
                 child: Text(
-                  'Neuer Katzen-Rekord!',
-                  style: TextStyle(color: Color(0xFFFFE7C2)),
+                  strings.newCatRecord,
+                  style: const TextStyle(color: Color(0xFFFFE7C2)),
                 ),
               ),
             ],
@@ -607,16 +633,17 @@ class _GamePageState extends State<GamePage>
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                '${levelName[level]} · $finalScore Punkte',
+                '${_localizedLevelName(strings, level)} · '
+                '$finalScore ${strings.points}',
                 style: const TextStyle(
                   color: Color(0xFFFFD166),
                   fontWeight: FontWeight.w700,
                 ),
               ),
               const SizedBox(height: 10),
-              const Text(
-                'Unter welchem Namen möchtest du weltweit erscheinen?',
-                style: TextStyle(color: Colors.white70),
+              Text(
+                strings.globalNameQuestion,
+                style: const TextStyle(color: Colors.white70),
               ),
               const SizedBox(height: 12),
               TextField(
@@ -627,8 +654,8 @@ class _GamePageState extends State<GamePage>
                 textInputAction: TextInputAction.done,
                 style: const TextStyle(color: Colors.white),
                 decoration: InputDecoration(
-                  labelText: 'Dein Name',
-                  hintText: 'z. B. Miezemeister',
+                  labelText: strings.yourName,
+                  hintText: strings.nameHint,
                   labelStyle: const TextStyle(color: Color(0xFFFFBE77)),
                   hintStyle: const TextStyle(color: Colors.white38),
                   filled: true,
@@ -659,7 +686,7 @@ class _GamePageState extends State<GamePage>
             TextButton(
               onPressed: () => Navigator.of(dialogContext).pop(),
               style: TextButton.styleFrom(foregroundColor: Colors.white70),
-              child: const Text('Nur lokal'),
+              child: Text(strings.localOnly),
             ),
             FilledButton.icon(
               key: const Key('submit-global-highscore'),
@@ -672,7 +699,7 @@ class _GamePageState extends State<GamePage>
                 backgroundColor: const Color(0xFFE98572),
               ),
               icon: const Icon(Icons.public),
-              label: const Text('Eintragen'),
+              label: Text(strings.submit),
             ),
           ],
         ),
@@ -695,9 +722,7 @@ class _GamePageState extends State<GamePage>
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          submitted
-              ? 'Miau! Dein Rekord ist jetzt weltweit sichtbar.'
-              : 'Der Online-Eintrag hat nicht geklappt. Dein lokaler Rekord bleibt gespeichert.',
+          submitted ? strings.globalSubmitSuccess : strings.globalSubmitFailure,
         ),
       ),
     );
@@ -809,6 +834,7 @@ class _GamePageState extends State<GamePage>
       };
 
   Future<void> _pickLevel() async {
+    final strings = _strings;
     final choice = await showModalBottomSheet<GameLevel>(
       context: context,
       backgroundColor: const Color(0xFF18272D),
@@ -823,10 +849,10 @@ class _GamePageState extends State<GamePage>
                 children: [
                   const Icon(Icons.pets, color: Color(0xFFFFBE77)),
                   const SizedBox(width: 8),
-                  const Expanded(
+                  Expanded(
                     child: Text(
-                      'Level wählen',
-                      style: TextStyle(
+                      strings.chooseLevel,
+                      style: const TextStyle(
                         color: Colors.white,
                         fontSize: 20,
                         fontWeight: FontWeight.w700,
@@ -834,7 +860,7 @@ class _GamePageState extends State<GamePage>
                     ),
                   ),
                   Text(
-                    'Bester Score: $_bestEver',
+                    '${strings.bestScore}: $_bestEver',
                     style: const TextStyle(color: Color(0xFFFFD166)),
                   ),
                 ],
@@ -854,8 +880,10 @@ class _GamePageState extends State<GamePage>
                           child: _LevelCard(
                             key: Key('level-card-${level.name}'),
                             icon: _levelIcon(level),
-                            name: levelName[level]!,
-                            description: levelDescription[level]!,
+                            name: _localizedLevelName(strings, level),
+                            description:
+                                _localizedLevelDescription(strings, level),
+                            strings: strings,
                             highScore: _levelHighScores[level]!,
                             selected: selectedLevel == level,
                             unlocked: _isLevelUnlocked(level),
@@ -1050,6 +1078,8 @@ class _GamePageState extends State<GamePage>
   @override
   Widget build(BuildContext context) {
     final (bodyDark, bodyLight) = skinBodyColors[selectedSkin]!;
+    final strings = _strings;
+    final languageCode = Localizations.localeOf(context).languageCode;
 
     return Scaffold(
       appBar: AppBar(
@@ -1071,9 +1101,32 @@ class _GamePageState extends State<GamePage>
         ),
         centerTitle: true,
         actions: [
+          PopupMenuButton<String>(
+            key: const Key('language-button'),
+            tooltip: strings.language,
+            onSelected: (code) => widget.onLocaleChanged(Locale(code)),
+            icon: Text(
+              languageCode.toUpperCase(),
+              style: const TextStyle(
+                color: Color(0xFFFFE7C2),
+                fontWeight: FontWeight.w800,
+                fontSize: 12,
+              ),
+            ),
+            itemBuilder: (context) => [
+              PopupMenuItem(
+                value: 'de',
+                child: Text('DE · ${strings.germanLanguage}'),
+              ),
+              PopupMenuItem(
+                value: 'en',
+                child: Text('EN · ${strings.englishLanguage}'),
+              ),
+            ],
+          ),
           IconButton(
             key: const Key('global-leaderboard-button'),
-            tooltip: 'Weltweite Bestenliste',
+            tooltip: strings.globalLeaderboard,
             onPressed: _showLeaderboard,
             icon: const Icon(Icons.public, color: Color(0xFFFFD166)),
           ),
@@ -1204,6 +1257,7 @@ class _GamePageState extends State<GamePage>
   }
 
   Widget _buildBoard(Color bodyDark, Color bodyLight) {
+    final strings = _strings;
     return LayoutBuilder(
       builder: (context, constraints) {
         final cell = _cellSize(constraints.biggest);
@@ -1260,18 +1314,18 @@ class _GamePageState extends State<GamePage>
                                         size: const Size.square(58),
                                       ),
                                       const SizedBox(height: 4),
-                                      const Text(
-                                        'Bereit zur Mäusejagd?',
-                                        style: TextStyle(
+                                      Text(
+                                        strings.readyTitle,
+                                        style: const TextStyle(
                                           color: Color(0xFFFFE7C2),
                                           fontSize: 18,
                                           fontWeight: FontWeight.w800,
                                         ),
                                       ),
                                       const SizedBox(height: 2),
-                                      const Text(
-                                        'Fische schnappen · Mäuse erwischen',
-                                        style: TextStyle(
+                                      Text(
+                                        strings.readySubtitle,
+                                        style: const TextStyle(
                                           color: Colors.white60,
                                           fontSize: 11,
                                         ),
@@ -1282,7 +1336,8 @@ class _GamePageState extends State<GamePage>
                                         onPressed: _pickLevel,
                                         icon: Icon(_levelIcon(selectedLevel)),
                                         label: Text(
-                                          'Level: ${levelName[selectedLevel]}',
+                                          '${strings.level}: '
+                                          '${_localizedLevelName(strings, selectedLevel)}',
                                         ),
                                         style: OutlinedButton.styleFrom(
                                           foregroundColor:
@@ -1300,7 +1355,7 @@ class _GamePageState extends State<GamePage>
                                         key: const Key('start-button'),
                                         onPressed: _startGame,
                                         icon: const Icon(Icons.pets),
-                                        label: const Text('Spiel starten'),
+                                        label: Text(strings.startGame),
                                         style: FilledButton.styleFrom(
                                           backgroundColor:
                                               const Color(0xFFE98572),
@@ -1315,9 +1370,9 @@ class _GamePageState extends State<GamePage>
                                         ),
                                       ),
                                       const SizedBox(height: 6),
-                                      const Text(
-                                        'Computer: Leertaste oder Enter',
-                                        style: TextStyle(
+                                      Text(
+                                        strings.computerStartHint,
+                                        style: const TextStyle(
                                           color: Colors.white60,
                                           fontSize: 11,
                                         ),
@@ -1341,6 +1396,7 @@ class _GamePageState extends State<GamePage>
   }
 
   Widget _buildHud() {
+    final strings = _strings;
     return LayoutBuilder(
       builder: (context, constraints) {
         final compact = constraints.maxWidth < 600;
@@ -1403,7 +1459,7 @@ class _GamePageState extends State<GamePage>
                               ),
                               const SizedBox(width: 6),
                               Text(
-                                'Score: $score',
+                                '${strings.score}: $score',
                                 style: const TextStyle(
                                   fontWeight: FontWeight.w600,
                                 ),
@@ -1416,7 +1472,7 @@ class _GamePageState extends State<GamePage>
                               ),
                               const SizedBox(width: 5),
                               Text(
-                                'Highscore: $highScore',
+                                '${strings.highScore}: $highScore',
                                 key: const Key('high-score-value'),
                                 style: const TextStyle(
                                   fontWeight: FontWeight.w600,
@@ -1427,7 +1483,7 @@ class _GamePageState extends State<GamePage>
                               Icon(_levelIcon(selectedLevel), size: 17),
                               const SizedBox(width: 5),
                               Text(
-                                levelName[selectedLevel]!,
+                                _localizedLevelName(strings, selectedLevel),
                                 key: const Key('current-level'),
                                 style: const TextStyle(
                                   fontWeight: FontWeight.w600,
@@ -1442,7 +1498,9 @@ class _GamePageState extends State<GamePage>
                         children: [
                           if (compact)
                             Tooltip(
-                              message: wrapWalls ? 'Rand-Warp' : 'Feste Wände',
+                              message: wrapWalls
+                                  ? strings.wrapWalls
+                                  : strings.solidWalls,
                               child: Padding(
                                 padding:
                                     const EdgeInsets.symmetric(horizontal: 9),
@@ -1456,25 +1514,27 @@ class _GamePageState extends State<GamePage>
                             )
                           else
                             Text(
-                              wrapWalls ? 'Rand-Warp' : 'Feste Wände',
+                              wrapWalls
+                                  ? strings.wrapWalls
+                                  : strings.solidWalls,
                               style: const TextStyle(color: Colors.white70),
                             ),
                           actionButton(
                             tooltip: !_gameStarted
-                                ? 'Spiel zuerst starten'
+                                ? strings.startFirst
                                 : paused
-                                    ? 'Fortsetzen'
-                                    : 'Pause',
+                                    ? strings.resume
+                                    : strings.pause,
                             onPressed: _gameStarted ? _togglePause : null,
                             icon: paused ? Icons.play_arrow : Icons.pause,
                           ),
                           actionButton(
-                            tooltip: 'Katze wählen',
+                            tooltip: strings.chooseCat,
                             onPressed: _pickSkin,
                             icon: Icons.pets,
                           ),
                           actionButton(
-                            tooltip: 'Sound an/aus',
+                            tooltip: strings.toggleSound,
                             onPressed: () {
                               final enableSound = !soundOn;
                               setState(() => soundOn = enableSound);
@@ -1489,7 +1549,7 @@ class _GamePageState extends State<GamePage>
                           ),
                           if (compact)
                             actionButton(
-                              tooltip: 'Neues Spiel',
+                              tooltip: strings.newGame,
                               icon: Icons.refresh,
                               color: Colors.tealAccent,
                               onPressed: _newGame,
@@ -1498,7 +1558,7 @@ class _GamePageState extends State<GamePage>
                             ElevatedButton.icon(
                               onPressed: _newGame,
                               icon: const Icon(Icons.refresh),
-                              label: const Text('Neu'),
+                              label: Text(strings.newShort),
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: const Color(0xFFE98572),
                                 foregroundColor: Colors.white,
@@ -1572,9 +1632,9 @@ class _GamePageState extends State<GamePage>
                           ),
                         ],
                       ),
-                      child: const Text(
-                        'MOUSE BONUS +30 🧀',
-                        style: TextStyle(
+                      child: Text(
+                        '${_strings.mouseBonus} +30 🧀',
+                        style: const TextStyle(
                           color: Colors.white,
                           fontWeight: FontWeight.w700,
                         ),
@@ -1630,6 +1690,7 @@ class _LeaderboardSheetState extends State<_LeaderboardSheet> {
   @override
   Widget build(BuildContext context) {
     final maxHeight = MediaQuery.sizeOf(context).height * 0.82;
+    final strings = AppLocalizations.of(context);
     return SafeArea(
       child: Align(
         alignment: Alignment.bottomCenter,
@@ -1665,27 +1726,27 @@ class _LeaderboardSheetState extends State<_LeaderboardSheet> {
                       size: 30,
                     ),
                     const SizedBox(width: 10),
-                    const Expanded(
+                    Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'Weltweite Bestenliste',
-                            style: TextStyle(
+                            strings.globalLeaderboard,
+                            style: const TextStyle(
                               color: Color(0xFFFFE7C2),
                               fontSize: 21,
                               fontWeight: FontWeight.w800,
                             ),
                           ),
                           Text(
-                            'Die besten Katzenjäger pro Level',
-                            style: TextStyle(color: Colors.white60),
+                            strings.leaderboardSubtitle,
+                            style: const TextStyle(color: Colors.white60),
                           ),
                         ],
                       ),
                     ),
                     IconButton(
-                      tooltip: 'Schließen',
+                      tooltip: strings.close,
                       onPressed: () => Navigator.of(context).pop(),
                       icon: const Icon(Icons.close, color: Colors.white70),
                     ),
@@ -1711,7 +1772,7 @@ class _LeaderboardSheetState extends State<_LeaderboardSheet> {
                                 ? const Color(0xFF18343C)
                                 : const Color(0xFFFFBE77),
                           ),
-                          label: Text(levelName[level]!),
+                          label: Text(_localizedLevelName(strings, level)),
                           selectedColor: const Color(0xFFFFBE77),
                           backgroundColor: Colors.white.withValues(alpha: 0.07),
                           side: BorderSide(
@@ -1746,7 +1807,7 @@ class _LeaderboardSheetState extends State<_LeaderboardSheet> {
                       const SizedBox(width: 7),
                       Flexible(
                         child: Text(
-                          'Dein Spielername: ${widget.playerName}',
+                          '${strings.yourPlayerName}: ${widget.playerName}',
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(color: Colors.white60),
                         ),
@@ -1762,11 +1823,12 @@ class _LeaderboardSheetState extends State<_LeaderboardSheet> {
   }
 
   Widget _buildScores() {
+    final strings = AppLocalizations.of(context);
     if (!widget.service.isAvailable) {
-      return const _LeaderboardMessage(
+      return _LeaderboardMessage(
         icon: Icons.cloud_off,
-        title: 'Offline verfügbar',
-        message: 'Die weltweite Bestenliste erscheint in der Web-App.',
+        title: strings.offlineAvailable,
+        message: strings.offlineLeaderboardMessage,
       );
     }
 
@@ -1774,10 +1836,10 @@ class _LeaderboardSheetState extends State<_LeaderboardSheet> {
       stream: widget.service.watchTop(_level.name),
       builder: (context, snapshot) {
         if (snapshot.hasError) {
-          return const _LeaderboardMessage(
+          return _LeaderboardMessage(
             icon: Icons.cloud_off,
-            title: 'Gerade keine Verbindung',
-            message: 'Bitte versuche es gleich noch einmal.',
+            title: strings.noConnection,
+            message: strings.tryAgain,
           );
         }
         if (!snapshot.hasData) {
@@ -1788,10 +1850,10 @@ class _LeaderboardSheetState extends State<_LeaderboardSheet> {
 
         final entries = snapshot.data!;
         if (entries.isEmpty) {
-          return const _LeaderboardMessage(
+          return _LeaderboardMessage(
             icon: Icons.pets,
-            title: 'Noch keine Einträge',
-            message: 'Hol dir den ersten Platz!',
+            title: strings.noEntries,
+            message: strings.getFirstPlace,
           );
         }
 
@@ -1851,9 +1913,12 @@ class _LeaderboardSheetState extends State<_LeaderboardSheet> {
                     ),
                   ),
                   const SizedBox(width: 4),
-                  const Text(
-                    'Pkt.',
-                    style: TextStyle(color: Colors.white54, fontSize: 11),
+                  Text(
+                    strings.pointsShort,
+                    style: const TextStyle(
+                      color: Colors.white54,
+                      fontSize: 11,
+                    ),
                   ),
                 ],
               ),
@@ -1915,6 +1980,7 @@ class _LevelCard extends StatelessWidget {
   final bool selected;
   final bool unlocked;
   final int unlockScore;
+  final AppLocalizations strings;
   final VoidCallback onTap;
 
   const _LevelCard({
@@ -1926,6 +1992,7 @@ class _LevelCard extends StatelessWidget {
     required this.selected,
     required this.unlocked,
     required this.unlockScore,
+    required this.strings,
     required this.onTap,
   });
 
@@ -1966,7 +2033,9 @@ class _LevelCard extends StatelessWidget {
               ),
               const SizedBox(height: 3),
               Text(
-                unlocked ? description : 'Ab $unlockScore Punkten',
+                unlocked
+                    ? description
+                    : '${strings.unlockAt} $unlockScore ${strings.unlockPoints}',
                 textAlign: TextAlign.center,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
@@ -1974,7 +2043,7 @@ class _LevelCard extends StatelessWidget {
               ),
               const SizedBox(height: 4),
               Text(
-                'Highscore: $highScore',
+                '${strings.highScore}: $highScore',
                 style: TextStyle(
                   color: unlocked ? const Color(0xFFFFD166) : Colors.white30,
                   fontSize: 10.5,
@@ -3079,9 +3148,10 @@ class _KeyboardHint extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     const keySize = 45.0;
+    final strings = AppLocalizations.of(context);
 
     return Semantics(
-      label: 'Steuerung mit den Pfeiltasten',
+      label: strings.keyboardControlSemantics,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         decoration: BoxDecoration(
@@ -3098,10 +3168,10 @@ class _KeyboardHint extends StatelessWidget {
             ),
           ],
         ),
-        child: const Column(
+        child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Row(
+            const Row(
               mainAxisSize: MainAxisSize.min,
               children: [
                 _PawControl(
@@ -3111,8 +3181,8 @@ class _KeyboardHint extends StatelessWidget {
                 ),
               ],
             ),
-            SizedBox(height: 3),
-            Row(
+            const SizedBox(height: 3),
+            const Row(
               mainAxisSize: MainAxisSize.min,
               children: [
                 _PawControl(
@@ -3134,19 +3204,19 @@ class _KeyboardHint extends StatelessWidget {
                 ),
               ],
             ),
-            SizedBox(height: 8),
+            const SizedBox(height: 8),
             Text(
-              'Mit den Pfoten – äh, Pfeiltasten',
-              style: TextStyle(
+              strings.keyboardFunHint,
+              style: const TextStyle(
                 color: Color(0xFFFFE7C2),
                 fontSize: 11.5,
                 fontWeight: FontWeight.w700,
               ),
             ),
-            SizedBox(height: 2),
+            const SizedBox(height: 2),
             Text(
-              'Steuerung: Pfeiltasten',
-              style: TextStyle(color: Colors.white54, fontSize: 10),
+              strings.keyboardHint,
+              style: const TextStyle(color: Colors.white54, fontSize: 10),
             ),
           ],
         ),
@@ -3182,8 +3252,9 @@ class _DPad extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final gap = buttonSize * 0.08;
+    final strings = AppLocalizations.of(context);
     return Semantics(
-      label: 'Pfoten-Steuerkreuz',
+      label: strings.dpadSemantics,
       child: Container(
         padding: EdgeInsets.all(buttonSize * 0.12),
         decoration: BoxDecoration(
@@ -3203,7 +3274,7 @@ class _DPad extends StatelessWidget {
                   key: const Key('combo-up-left'),
                   angle: -pi / 4,
                   size: buttonSize,
-                  label: 'Kombi: hoch und links',
+                  label: strings.comboUpLeft,
                   onPressed: onUpLeft,
                 ),
                 SizedBox(width: gap),
@@ -3218,7 +3289,7 @@ class _DPad extends StatelessWidget {
                   key: const Key('combo-up-right'),
                   angle: pi / 4,
                   size: buttonSize,
-                  label: 'Kombi: hoch und rechts',
+                  label: strings.comboUpRight,
                   onPressed: onUpRight,
                 ),
               ],
@@ -3259,7 +3330,7 @@ class _DPad extends StatelessWidget {
                   key: const Key('combo-down-left'),
                   angle: -3 * pi / 4,
                   size: buttonSize,
-                  label: 'Kombi: runter und links',
+                  label: strings.comboDownLeft,
                   onPressed: onDownLeft,
                 ),
                 SizedBox(width: gap),
@@ -3274,7 +3345,7 @@ class _DPad extends StatelessWidget {
                   key: const Key('combo-down-right'),
                   angle: 3 * pi / 4,
                   size: buttonSize,
-                  label: 'Kombi: runter und rechts',
+                  label: strings.comboDownRight,
                   onPressed: onDownRight,
                 ),
               ],
@@ -3305,15 +3376,15 @@ class _PawControl extends StatelessWidget {
         Direction.right => Icons.keyboard_arrow_right_rounded,
       };
 
-  String get _label => switch (direction) {
-        Direction.up => 'Nach oben',
-        Direction.down => 'Nach unten',
-        Direction.left => 'Nach links',
-        Direction.right => 'Nach rechts',
-      };
-
   @override
   Widget build(BuildContext context) {
+    final strings = AppLocalizations.of(context);
+    final label = switch (direction) {
+      Direction.up => strings.directionUp,
+      Direction.down => strings.directionDown,
+      Direction.left => strings.directionLeft,
+      Direction.right => strings.directionRight,
+    };
     final visual = SizedBox.square(
       dimension: size,
       child: CustomPaint(
@@ -3331,7 +3402,7 @@ class _PawControl extends StatelessWidget {
     if (onPressed == null) return visual;
     return Semantics(
       button: true,
-      label: _label,
+      label: label,
       child: Material(
         color: Colors.transparent,
         child: InkWell(

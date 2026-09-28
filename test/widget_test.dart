@@ -11,6 +11,7 @@ void main() {
       (tester) async {
     SharedPreferences.setMockInitialValues({
       'cat_snake_high_score': 120,
+      'cat_snake_language': 'de',
     });
     debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
     addTearDown(() => debugDefaultTargetPlatformOverride = null);
@@ -111,7 +112,7 @@ void main() {
   });
 
   testWidgets('keeps touch controls on mobile', (tester) async {
-    SharedPreferences.setMockInitialValues({});
+    SharedPreferences.setMockInitialValues({'cat_snake_language': 'de'});
     debugDefaultTargetPlatformOverride = TargetPlatform.android;
     addTearDown(() => debugDefaultTargetPlatformOverride = null);
     await tester.binding.setSurfaceSize(const Size(844, 390));
@@ -144,7 +145,7 @@ void main() {
   });
 
   testWidgets('combo paw queues two safe turns', (tester) async {
-    SharedPreferences.setMockInitialValues({});
+    SharedPreferences.setMockInitialValues({'cat_snake_language': 'de'});
     debugDefaultTargetPlatformOverride = TargetPlatform.android;
     addTearDown(() => debugDefaultTargetPlatformOverride = null);
     await tester.binding.setSurfaceSize(const Size(844, 390));
@@ -174,6 +175,48 @@ void main() {
     }
     expect(boardPainter().direction.toString(), 'Direction.right');
     expect(tester.takeException(), isNull);
+
+    debugDefaultTargetPlatformOverride = null;
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('switches between English and German', (tester) async {
+    SharedPreferences.setMockInitialValues({'cat_snake_language': 'en'});
+    debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    await tester.binding.setSurfaceSize(const Size(844, 390));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(const CatSnakeApp());
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.text('Start game'), findsOneWidget);
+    expect(find.text('Controls: Arrow keys'), findsOneWidget);
+    expect(find.text('Level: Meadow'), findsOneWidget);
+    expect(find.text('EN'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('global-leaderboard-button')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.text('Worldwide leaderboard'), findsOneWidget);
+    expect(find.text('Available online'), findsOneWidget);
+    await tester.tap(find.byTooltip('Close'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+
+    await tester.tap(find.byKey(const Key('language-button')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.tap(find.text('DE · German'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(find.text('Spiel starten'), findsOneWidget);
+    expect(find.text('Steuerung: Pfeiltasten'), findsOneWidget);
+    expect(find.text('DE'), findsOneWidget);
+    final preferences = await SharedPreferences.getInstance();
+    expect(preferences.getString('cat_snake_language'), 'de');
 
     debugDefaultTargetPlatformOverride = null;
     await tester.pumpWidget(const SizedBox.shrink());
