@@ -1,10 +1,24 @@
 // lib/main.dart
 import 'package:flutter/material.dart';
 import 'package:audioplayers/audioplayers.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter/foundation.dart';
+
+import 'firebase_options.dart';
 import 'screens/game_page.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  if (kIsWeb) {
+    try {
+      await Firebase.initializeApp(
+        options: DefaultFirebaseOptions.currentPlatform,
+      );
+    } catch (error) {
+      debugPrint('Firebase konnte nicht initialisiert werden: $error');
+    }
+  }
 
   // Optional, aber hilfreich: Audio-Kontext (Mix mit anderen Apps, Game-Usage etc.)
   await AudioPlayer.global.setAudioContext(

@@ -10,6 +10,7 @@ import 'package:audioplayers/audioplayers.dart';
 import 'dart:ui' as ui;
 import '../audio/web_sfx_engine.dart';
 import '../constants/game_constants.dart';
+import '../services/leaderboard_service.dart';
 
 class GamePage extends StatefulWidget {
   const GamePage({super.key});
@@ -51,7 +52,12 @@ class _GamePageState extends State<GamePage>
     for (final level in GameLevel.values) level: 0,
   };
   static const String _highScoreKey = 'cat_snake_high_score';
+  static const String _playerNameKey = 'cat_snake_player_name';
   SharedPreferences? _preferences;
+  final LeaderboardService _leaderboard = LeaderboardService();
+  String _playerName = '';
+  int _roundStartingHighScore = 0;
+  bool _endingGame = false;
   bool _gameStarted = false;
   bool paused = false;
   bool wrapWalls = true; // Wrap standardmäßig EIN
@@ -152,6 +158,7 @@ class _GamePageState extends State<GamePage>
     try {
       final preferences = await SharedPreferences.getInstance();
       _preferences = preferences;
+      final storedPlayerName = preferences.getString(_playerNameKey) ?? '';
       final legacyHighScore = preferences.getInt(_highScoreKey) ?? 0;
       final storedHighScores = {
         for (final level in GameLevel.values)
@@ -160,9 +167,13 @@ class _GamePageState extends State<GamePage>
       };
       if (!mounted) return;
       setState(() {
+        _playerName = storedPlayerName;
         for (final entry in storedHighScores.entries) {
           _levelHighScores[entry.key] =
               max(_levelHighScores[entry.key]!, entry.value);
+        }
+        if (!_gameStarted && score == 0) {
+          _roundStartingHighScore = highScore;
         }
       });
     } catch (error) {
@@ -192,6 +203,7 @@ class _GamePageState extends State<GamePage>
     if (_gameStarted) return;
     if (soundOn) unawaited(_webSfx.unlock());
     setState(() {
+      _roundStartingHighScore = highScore;
       _gameStarted = true;
       paused = false;
     });
@@ -457,7 +469,9 @@ class _GamePageState extends State<GamePage>
     });
   }
 
-  void _gameOver() {
+  Future<void> _gameOver() async {
+    if (_endingGame) return;
+    _endingGame = true;
     _gameTicker?.stop();
     _lastFrameTime = null;
     setState(() => _gameStarted = false);
@@ -465,13 +479,21 @@ class _GamePageState extends State<GamePage>
     unawaited(_pauseBgm());
 
     final finishedLevel = selectedLevel;
+    final finalScore = score;
+    final isNewHighScore =
+        finalScore > 0 && finalScore > _roundStartingHighScore;
+    final submittedGlobally = isNewHighScore
+        ? await _askAndSubmitHighScore(finishedLevel, finalScore)
+        : false;
+    if (!mounted) return;
+
     final nextIndex = finishedLevel.index + 1;
     final nextLevel = nextIndex < GameLevel.values.length
         ? GameLevel.values[nextIndex]
         : null;
     final canContinue = nextLevel != null && _isLevelUnlocked(nextLevel);
 
-    showDialog(
+    await showDialog<void>(
       context: context,
       barrierDismissible: false,
       builder: (ctx) => AlertDialog(
@@ -491,7 +513,10 @@ class _GamePageState extends State<GamePage>
           ],
         ),
         content: Text(
-          '${levelName[finishedLevel]}\nScore: $score\nLevel-Highscore: $highScore',
+          '${levelName[finishedLevel]}\n'
+          'Score: $finalScore\n'
+          'Level-Highscore: ${_levelHighScores[finishedLevel]}'
+          '${submittedGlobally ? '\nWeltweit eingetragen ✓' : ''}',
           style: const TextStyle(color: Colors.white70, height: 1.45),
         ),
         actions: [
@@ -521,6 +546,166 @@ class _GamePageState extends State<GamePage>
         ],
       ),
     );
+    _endingGame = false;
+  }
+
+  Future<bool> _askAndSubmitHighScore(
+    GameLevel level,
+    int finalScore,
+  ) async {
+    if (!_leaderboard.isAvailable || !mounted) return false;
+
+    final controller = TextEditingController(text: _playerName);
+    var canSubmit = controller.text.trim().isNotEmpty;
+    final name = await showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          key: const Key('highscore-name-dialog'),
+          backgroundColor: const Color(0xFF18343C),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(24),
+            side: const BorderSide(color: Color(0x88FFD166)),
+          ),
+          title: const Row(
+            children: [
+              Icon(Icons.emoji_events, color: Color(0xFFFFD166)),
+              SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Neuer Katzen-Rekord!',
+                  style: TextStyle(color: Color(0xFFFFE7C2)),
+                ),
+              ),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '${levelName[level]} · $finalScore Punkte',
+                style: const TextStyle(
+                  color: Color(0xFFFFD166),
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 10),
+              const Text(
+                'Unter welchem Namen möchtest du weltweit erscheinen?',
+                style: TextStyle(color: Colors.white70),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                key: const Key('player-name-field'),
+                controller: controller,
+                autofocus: true,
+                maxLength: 16,
+                textInputAction: TextInputAction.done,
+                style: const TextStyle(color: Colors.white),
+                decoration: InputDecoration(
+                  labelText: 'Dein Name',
+                  hintText: 'z. B. Miezemeister',
+                  labelStyle: const TextStyle(color: Color(0xFFFFBE77)),
+                  hintStyle: const TextStyle(color: Colors.white38),
+                  filled: true,
+                  fillColor: Colors.black.withValues(alpha: 0.18),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: const BorderSide(color: Colors.white24),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: const BorderSide(color: Color(0xFFFFBE77)),
+                  ),
+                  counterStyle: const TextStyle(color: Colors.white54),
+                ),
+                onChanged: (value) => setDialogState(
+                  () => canSubmit = value.trim().isNotEmpty,
+                ),
+                onSubmitted: (value) {
+                  final trimmed = value.trim();
+                  if (trimmed.isNotEmpty) {
+                    Navigator.of(dialogContext).pop(trimmed);
+                  }
+                },
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              style: TextButton.styleFrom(foregroundColor: Colors.white70),
+              child: const Text('Nur lokal'),
+            ),
+            FilledButton.icon(
+              key: const Key('submit-global-highscore'),
+              onPressed: canSubmit
+                  ? () => Navigator.of(dialogContext).pop(
+                        controller.text.trim(),
+                      )
+                  : null,
+              style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFFE98572),
+              ),
+              icon: const Icon(Icons.public),
+              label: const Text('Eintragen'),
+            ),
+          ],
+        ),
+      ),
+    );
+    controller.dispose();
+
+    if (name == null || name.isEmpty || !mounted) return false;
+    _playerName = name;
+    final preferences = _preferences ?? await SharedPreferences.getInstance();
+    _preferences = preferences;
+    await preferences.setString(_playerNameKey, name);
+
+    final submitted = await _leaderboard.submitHighScore(
+      level: level.name,
+      playerName: name,
+      score: finalScore,
+    );
+    if (!mounted) return submitted;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          submitted
+              ? 'Miau! Dein Rekord ist jetzt weltweit sichtbar.'
+              : 'Der Online-Eintrag hat nicht geklappt. Dein lokaler Rekord bleibt gespeichert.',
+        ),
+      ),
+    );
+    return submitted;
+  }
+
+  Future<void> _showLeaderboard() async {
+    final resumeAfterClosing = _gameStarted && !paused;
+    if (resumeAfterClosing) {
+      setState(() => paused = true);
+      _gameTicker?.stop();
+      _lastFrameTime = null;
+      unawaited(_pauseBgm());
+    }
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => _LeaderboardSheet(
+        service: _leaderboard,
+        initialLevel: selectedLevel,
+        playerName: _playerName,
+      ),
+    );
+    if (resumeAfterClosing && mounted && _gameStarted) {
+      setState(() => paused = false);
+      _lastFrameTime = null;
+      _gameTicker?.start();
+      unawaited(_startBgmIfAllowed());
+    }
   }
 
   void _onHorizontalDrag(DragUpdateDetails d) {
@@ -863,6 +1048,15 @@ class _GamePageState extends State<GamePage>
           ],
         ),
         centerTitle: true,
+        actions: [
+          IconButton(
+            key: const Key('global-leaderboard-button'),
+            tooltip: 'Weltweite Bestenliste',
+            onPressed: _showLeaderboard,
+            icon: const Icon(Icons.public, color: Color(0xFFFFD166)),
+          ),
+          const SizedBox(width: 4),
+        ],
         toolbarHeight: 52,
         flexibleSpace: const DecoratedBox(
           decoration: BoxDecoration(
@@ -1361,6 +1555,317 @@ class _GamePageState extends State<GamePage>
     final w = size.width, h = size.height;
     final cellW = w / cols, cellH = h / rows;
     return min(cellW, cellH);
+  }
+}
+
+class _LeaderboardSheet extends StatefulWidget {
+  const _LeaderboardSheet({
+    required this.service,
+    required this.initialLevel,
+    required this.playerName,
+  });
+
+  final LeaderboardService service;
+  final GameLevel initialLevel;
+  final String playerName;
+
+  @override
+  State<_LeaderboardSheet> createState() => _LeaderboardSheetState();
+}
+
+class _LeaderboardSheetState extends State<_LeaderboardSheet> {
+  late GameLevel _level = widget.initialLevel;
+
+  IconData _levelIcon(GameLevel level) => switch (level) {
+        GameLevel.meadow => Icons.grass,
+        GameLevel.livingRoom => Icons.chair,
+        GameLevel.garden => Icons.local_florist,
+      };
+
+  Color _rankColor(int rank) => switch (rank) {
+        1 => const Color(0xFFFFD166),
+        2 => const Color(0xFFDDE7EE),
+        3 => const Color(0xFFD99A63),
+        _ => Colors.white54,
+      };
+
+  @override
+  Widget build(BuildContext context) {
+    final maxHeight = MediaQuery.sizeOf(context).height * 0.82;
+    return SafeArea(
+      child: Align(
+        alignment: Alignment.bottomCenter,
+        child: Container(
+          key: const Key('world-leaderboard-sheet'),
+          width: double.infinity,
+          constraints: BoxConstraints(maxWidth: 680, maxHeight: maxHeight),
+          decoration: const BoxDecoration(
+            color: Color(0xFF162F36),
+            borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+            border: Border.fromBorderSide(
+              BorderSide(color: Color(0x44FFBE77)),
+            ),
+          ),
+          child: Column(
+            children: [
+              const SizedBox(height: 10),
+              Container(
+                width: 44,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.white24,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(18, 14, 10, 8),
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.emoji_events,
+                      color: Color(0xFFFFD166),
+                      size: 30,
+                    ),
+                    const SizedBox(width: 10),
+                    const Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Weltweite Bestenliste',
+                            style: TextStyle(
+                              color: Color(0xFFFFE7C2),
+                              fontSize: 21,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          Text(
+                            'Die besten Katzenjäger pro Level',
+                            style: TextStyle(color: Colors.white60),
+                          ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Schließen',
+                      onPressed: () => Navigator.of(context).pop(),
+                      icon: const Icon(Icons.close, color: Colors.white70),
+                    ),
+                  ],
+                ),
+              ),
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(horizontal: 14),
+                child: Row(
+                  children: [
+                    for (final level in GameLevel.values)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 4),
+                        child: ChoiceChip(
+                          key: Key('leaderboard-level-${level.name}'),
+                          selected: _level == level,
+                          onSelected: (_) => setState(() => _level = level),
+                          avatar: Icon(
+                            _levelIcon(level),
+                            size: 18,
+                            color: _level == level
+                                ? const Color(0xFF18343C)
+                                : const Color(0xFFFFBE77),
+                          ),
+                          label: Text(levelName[level]!),
+                          selectedColor: const Color(0xFFFFBE77),
+                          backgroundColor: Colors.white.withValues(alpha: 0.07),
+                          side: BorderSide(
+                            color: _level == level
+                                ? const Color(0xFFFFBE77)
+                                : Colors.white24,
+                          ),
+                          labelStyle: TextStyle(
+                            color: _level == level
+                                ? const Color(0xFF18343C)
+                                : Colors.white70,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 10),
+              Expanded(child: _buildScores()),
+              if (widget.playerName.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(18, 8, 18, 14),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(
+                        Icons.pets,
+                        color: Color(0xFFFFBE77),
+                        size: 17,
+                      ),
+                      const SizedBox(width: 7),
+                      Flexible(
+                        child: Text(
+                          'Dein Spielername: ${widget.playerName}',
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(color: Colors.white60),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildScores() {
+    if (!widget.service.isAvailable) {
+      return const _LeaderboardMessage(
+        icon: Icons.cloud_off,
+        title: 'Offline verfügbar',
+        message: 'Die weltweite Bestenliste erscheint in der Web-App.',
+      );
+    }
+
+    return StreamBuilder<List<LeaderboardEntry>>(
+      stream: widget.service.watchTop(_level.name),
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return const _LeaderboardMessage(
+            icon: Icons.cloud_off,
+            title: 'Gerade keine Verbindung',
+            message: 'Bitte versuche es gleich noch einmal.',
+          );
+        }
+        if (!snapshot.hasData) {
+          return const Center(
+            child: CircularProgressIndicator(color: Color(0xFFFFBE77)),
+          );
+        }
+
+        final entries = snapshot.data!;
+        if (entries.isEmpty) {
+          return const _LeaderboardMessage(
+            icon: Icons.pets,
+            title: 'Noch keine Einträge',
+            message: 'Hol dir den ersten Platz!',
+          );
+        }
+
+        return ListView.separated(
+          padding: const EdgeInsets.fromLTRB(14, 2, 14, 8),
+          itemCount: entries.length,
+          separatorBuilder: (_, __) => const SizedBox(height: 6),
+          itemBuilder: (context, index) {
+            final rank = index + 1;
+            final entry = entries[index];
+            final isMine = entry.userId == widget.service.currentUserId;
+            return Container(
+              key: Key('leaderboard-entry-$rank'),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+              decoration: BoxDecoration(
+                color: isMine
+                    ? const Color(0x33FFBE77)
+                    : Colors.white.withValues(alpha: 0.055),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(
+                  color: isMine ? const Color(0x88FFBE77) : Colors.white10,
+                ),
+              ),
+              child: Row(
+                children: [
+                  SizedBox(
+                    width: 36,
+                    child: Text(
+                      rank <= 3 ? ['🥇', '🥈', '🥉'][index] : '$rank.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: _rankColor(rank),
+                        fontSize: rank <= 3 ? 22 : 16,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      entry.playerName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: isMine ? const Color(0xFFFFE7C2) : Colors.white,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Text(
+                    '${entry.score}',
+                    style: const TextStyle(
+                      color: Color(0xFFFFD166),
+                      fontSize: 17,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  const Text(
+                    'Pkt.',
+                    style: TextStyle(color: Colors.white54, fontSize: 11),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+}
+
+class _LeaderboardMessage extends StatelessWidget {
+  const _LeaderboardMessage({
+    required this.icon,
+    required this.title,
+    required this.message,
+  });
+
+  final IconData icon;
+  final String title;
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, color: const Color(0xFFFFBE77), size: 42),
+            const SizedBox(height: 10),
+            Text(
+              title,
+              style: const TextStyle(
+                color: Color(0xFFFFE7C2),
+                fontSize: 18,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: Colors.white60),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 

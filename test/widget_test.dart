@@ -35,6 +35,17 @@ void main() {
     expect(find.byKey(const Key('start-button')), findsOneWidget);
     expect(find.byKey(const Key('level-button')), findsOneWidget);
     expect(find.text('Level: Wiese'), findsOneWidget);
+    expect(find.byKey(const Key('global-leaderboard-button')), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('global-leaderboard-button')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.byKey(const Key('world-leaderboard-sheet')), findsOneWidget);
+    expect(find.text('Weltweite Bestenliste'), findsOneWidget);
+    expect(find.text('Offline verfügbar'), findsOneWidget);
+    await tester.tap(find.byTooltip('Schließen'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
 
     await tester.pump(const Duration(milliseconds: 400));
     expect(find.byKey(const Key('start-button')), findsOneWidget);

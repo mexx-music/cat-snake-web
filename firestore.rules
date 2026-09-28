@@ -1,0 +1,39 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function validLevel(level) {
+      return level == 'meadow' ||
+        level == 'livingRoom' ||
+        level == 'garden';
+    }
+
+    function validScore(data) {
+      return data.keys().hasOnly(['playerName', 'score', 'achievedAt']) &&
+        data.playerName is string &&
+        data.playerName.size() >= 1 &&
+        data.playerName.size() <= 16 &&
+        data.score is int &&
+        data.score >= 0 &&
+        data.score <= 100000 &&
+        data.achievedAt == request.time;
+    }
+
+    match /leaderboards/{level}/scores/{userId} {
+      allow read: if validLevel(level);
+
+      allow create: if request.auth != null &&
+        request.auth.uid == userId &&
+        validLevel(level) &&
+        validScore(request.resource.data);
+
+      allow update: if request.auth != null &&
+        request.auth.uid == userId &&
+        validLevel(level) &&
+        validScore(request.resource.data) &&
+        request.resource.data.score >= resource.data.score;
+
+      allow delete: if false;
+    }
+  }
+}
