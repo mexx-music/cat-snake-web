@@ -10,6 +10,7 @@ import 'package:audioplayers/audioplayers.dart';
 import 'dart:ui' as ui;
 import '../audio/web_sfx_engine.dart';
 import '../constants/game_constants.dart';
+import '../game/board_geometry.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../promo/promo_scene.dart';
 import '../services/leaderboard_service.dart';
@@ -48,9 +49,10 @@ class GamePage extends StatefulWidget {
 class _GamePageState extends State<GamePage>
     with TickerProviderStateMixin, WidgetsBindingObserver {
   AppLocalizations get _strings => AppLocalizations.of(context);
-  // Spielfeld
-  static const int rows = 16;
-  static const int cols = 22;
+  // Spielfeld: Standard bleibt 22×16; kleine Portrait-Handys nutzen 14×22.
+  BoardGeometry _boardGeometry = BoardGeometry.standard;
+  int get rows => _boardGeometry.rows;
+  int get cols => _boardGeometry.cols;
 
   final Random _rand = Random();
   List<Point<int>> snake = [];
@@ -122,28 +124,6 @@ class _GamePageState extends State<GamePage>
   String _levelHighScoreKey(GameLevel level) =>
       'cat_snake_high_score_${level.name}';
 
-  Set<Point<int>> _obstaclesFor(GameLevel level) {
-    switch (level) {
-      case GameLevel.meadow:
-        return {};
-      case GameLevel.livingRoom:
-        return {
-          for (var x = 3; x <= 5; x++)
-            for (var y = 3; y <= 4; y++) Point<int>(x, y),
-          for (var x = 16; x <= 18; x++)
-            for (var y = 10; y <= 11; y++) Point<int>(x, y),
-        };
-      case GameLevel.garden:
-        return {
-          for (var x = 4; x <= 5; x++)
-            for (var y = 3; y <= 5; y++) Point<int>(x, y),
-          for (var x = 16; x <= 18; x++)
-            for (var y = 3; y <= 4; y++) Point<int>(x, y),
-          for (var y = 11; y <= 13; y++) Point<int>(11, y),
-        };
-    }
-  }
-
   void _applyPromoScene(PromoSceneDefinition scene) {
     selectedLevel = scene.level;
     snake = List.of(scene.snake);
@@ -155,7 +135,7 @@ class _GamePageState extends State<GamePage>
     score = scene.score;
     _levelHighScores[scene.level] = scene.score;
     _roundStartingHighScore = scene.score;
-    obstacles = _obstaclesFor(scene.level);
+    obstacles = _boardGeometry.obstaclesFor(scene.level);
     wrapWalls = levelWrapWalls[scene.level]!;
     tickMs = levelStartSpeed[scene.level]!;
     _gameStarted = scene.started;
@@ -168,7 +148,7 @@ class _GamePageState extends State<GamePage>
     if (scene.bonusAt != null) _bonusCtrl.value = 0.34;
   }
 
-  void _newGame() {
+  void _newGame({bool notify = true}) {
     _gameTicker?.stop();
     if (kIsWeb) _webSfx.pauseMusic();
     _lastFrameTime = null;
@@ -180,13 +160,14 @@ class _GamePageState extends State<GamePage>
     wrapWalls = levelWrapWalls[selectedLevel]!;
     dir = Direction.right;
     _directionQueue.clear();
-    obstacles = _obstaclesFor(selectedLevel);
+    obstacles = _boardGeometry.obstaclesFor(selectedLevel);
     _musicVariation = _nextMusicVariation();
 
+    final initialHead = _boardGeometry.initialHead;
     snake = [
-      const Point<int>(cols ~/ 2 - 1, rows ~/ 2),
-      const Point<int>(cols ~/ 2 - 2, rows ~/ 2),
-      const Point<int>(cols ~/ 2 - 3, rows ~/ 2),
+      initialHead,
+      Point<int>(initialHead.x - 1, initialHead.y),
+      Point<int>(initialHead.x - 2, initialHead.y),
     ];
     _previousSnake = List.of(snake);
     _moveCtrl.value = 1;
@@ -197,7 +178,7 @@ class _GamePageState extends State<GamePage>
     _spawnFood();
     _spawnMouse();
 
-    setState(() {});
+    if (notify && mounted) setState(() {});
   }
 
   int _nextMusicVariation() {
@@ -341,8 +322,7 @@ class _GamePageState extends State<GamePage>
     }
   }
 
-  Point<int> _wrapPoint(Point<int> p) =>
-      Point<int>((p.x + cols) % cols, (p.y + rows) % rows);
+  Point<int> _wrapPoint(Point<int> point) => _boardGeometry.wrap(point);
 
   // Maus: sehr langsam & zufällig (bleibt oft stehen)
   void _moveMouseOnce() {
@@ -365,7 +345,7 @@ class _GamePageState extends State<GamePage>
       if (wrapWalls) {
         cand = _wrapPoint(cand);
       } else {
-        if (cand.x < 0 || cand.x >= cols || cand.y < 0 || cand.y >= rows) {
+        if (!_boardGeometry.contains(cand)) {
           continue;
         }
       }
@@ -491,9 +471,9 @@ class _GamePageState extends State<GamePage>
     }
 
     if (wrapWalls) {
-      next = Point<int>((next.x + cols) % cols, (next.y + rows) % rows);
+      next = _boardGeometry.wrap(next);
     } else {
-      if (next.x < 0 || next.x >= cols || next.y < 0 || next.y >= rows) {
+      if (!_boardGeometry.contains(next)) {
         _gameOver();
         return;
       }
@@ -985,7 +965,7 @@ class _GamePageState extends State<GamePage>
     });
 
     // Spielfeld vorbereiten; gestartet wird bewusst über den Start-Button.
-    _newGame();
+    _newGame(notify: false);
     final promoScene = widget.promoScene;
     if (promoScene == null) {
       unawaited(_loadHighScore());
@@ -1002,6 +982,18 @@ class _GamePageState extends State<GamePage>
         });
       }
     }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final nextGeometry = widget.promoScene == null
+        ? BoardGeometry.forViewport(MediaQuery.sizeOf(context))
+        : BoardGeometry.standard;
+    if (nextGeometry.layout == _boardGeometry.layout) return;
+
+    _boardGeometry = nextGeometry;
+    _newGame(notify: false);
   }
 
   @override
@@ -2685,7 +2677,7 @@ class _BoardPainter extends CustomPainter {
       );
 
       if (level == GameLevel.livingRoom) {
-        final isSofa = obstacle.y < 8;
+        final isSofa = obstacle.y < rows / 2;
         final color =
             isSofa ? const Color(0xFFCB6F5C) : const Color(0xFFC4935B);
         canvas.drawRRect(
@@ -2701,7 +2693,7 @@ class _BoardPainter extends CustomPainter {
             ..strokeCap = StrokeCap.round,
         );
       } else if (level == GameLevel.garden) {
-        if (obstacle.x >= 16) {
+        if (obstacle.x >= cols * 0.68) {
           canvas.drawOval(
             rect,
             Paint()..color = const Color(0xFF55AFC4),
@@ -2716,7 +2708,7 @@ class _BoardPainter extends CustomPainter {
               ..style = PaintingStyle.stroke
               ..strokeWidth = max(1, cell * 0.06),
           );
-        } else if (obstacle.x <= 5) {
+        } else if (obstacle.x <= cols * 0.32) {
           canvas.drawRRect(
             RRect.fromRectAndRadius(rect, Radius.circular(cell * 0.22)),
             Paint()..color = const Color(0xFF704A31),
