@@ -1,11 +1,11 @@
 {
-    "name": "cat_snake",
-    "short_name": "cat_snake",
+    "name": "Cat Snake",
+    "short_name": "Cat Snake",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",
     "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "description": "Snake. But with a cat. Eat fish, catch mice and see how long your cat can get.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [
