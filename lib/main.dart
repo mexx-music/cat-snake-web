@@ -10,10 +10,12 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'firebase_options.dart';
 import 'l10n/generated/app_localizations.dart';
 import 'screens/game_page.dart';
+import 'services/analytics_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
+  AnalyticsService analyticsService = const NoopAnalyticsService();
   if (kIsWeb) {
     try {
       await Firebase.initializeApp(
@@ -21,6 +23,13 @@ Future<void> main() async {
       );
     } catch (error) {
       debugPrint('Firebase konnte nicht initialisiert werden: $error');
+    }
+    if (Firebase.apps.isNotEmpty) {
+      try {
+        analyticsService = FirebaseAnalyticsService();
+      } catch (error) {
+        debugPrint('Firebase Analytics ist nicht verfügbar: $error');
+      }
     }
   }
 
@@ -39,11 +48,16 @@ Future<void> main() async {
     ),
   );
 
-  runApp(const CatSnakeApp());
+  runApp(CatSnakeApp(analyticsService: analyticsService));
 }
 
 class CatSnakeApp extends StatefulWidget {
-  const CatSnakeApp({super.key});
+  const CatSnakeApp({
+    this.analyticsService = const NoopAnalyticsService(),
+    super.key,
+  });
+
+  final AnalyticsService analyticsService;
 
   @override
   State<CatSnakeApp> createState() => _CatSnakeAppState();
@@ -95,7 +109,10 @@ class _CatSnakeAppState extends State<CatSnakeApp> {
           scrolledUnderElevation: 0,
         ),
       ),
-      home: GamePage(onLocaleChanged: _setLocale),
+      home: GamePage(
+        onLocaleChanged: _setLocale,
+        analyticsService: widget.analyticsService,
+      ),
     );
   }
 }

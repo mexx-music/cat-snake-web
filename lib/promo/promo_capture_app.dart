@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../l10n/generated/app_localizations.dart';
 import '../screens/game_page.dart';
+import '../services/analytics_service.dart';
 import 'promo_scene.dart';
 
 class PromoCaptureApp extends StatelessWidget {
@@ -34,6 +35,7 @@ class PromoCaptureApp extends StatelessWidget {
       home: GamePage(
         onLocaleChanged: (_) {},
         promoScene: scene,
+        analyticsService: const NoopAnalyticsService(),
       ),
     );
   }

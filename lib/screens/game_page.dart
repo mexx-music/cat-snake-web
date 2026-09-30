@@ -11,8 +11,11 @@ import 'dart:ui' as ui;
 import '../audio/web_sfx_engine.dart';
 import '../constants/game_constants.dart';
 import '../game/board_geometry.dart';
+import '../game/game_collision.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../promo/promo_scene.dart';
+import '../services/analytics_service.dart';
+import '../services/game_analytics_tracker.dart';
 import '../services/leaderboard_service.dart';
 
 String _localizedLevelName(AppLocalizations strings, GameLevel level) =>
@@ -36,11 +39,13 @@ class GamePage extends StatefulWidget {
   const GamePage({
     required this.onLocaleChanged,
     this.promoScene,
+    this.analyticsService = const NoopAnalyticsService(),
     super.key,
   });
 
   final ValueChanged<Locale> onLocaleChanged;
   final PromoSceneDefinition? promoScene;
+  final AnalyticsService analyticsService;
 
   @override
   State<GamePage> createState() => _GamePageState();
@@ -92,6 +97,7 @@ class _GamePageState extends State<GamePage>
   bool wrapWalls = true; // Wrap standardmäßig EIN
   GameLevel selectedLevel = GameLevel.meadow;
   Set<Point<int>> obstacles = {};
+  late final GameAnalyticsTracker _analyticsTracker;
 
   // Audio
   AudioPlayer? _bgm;
@@ -149,6 +155,7 @@ class _GamePageState extends State<GamePage>
   }
 
   void _newGame({bool notify = true}) {
+    _analyticsTracker.cancelRound();
     _gameTicker?.stop();
     if (kIsWeb) _webSfx.pauseMusic();
     _lastFrameTime = null;
@@ -240,6 +247,14 @@ class _GamePageState extends State<GamePage>
       _gameStarted = true;
       paused = false;
     });
+    _analyticsTracker.startRound(
+      GameStartAnalyticsEvent(
+        levelName: analyticsLevelName(selectedLevel),
+        levelIndex: analyticsLevelIndex(selectedLevel),
+        boardLayout: analyticsBoardLayout(_boardGeometry.layout),
+        language: analyticsLanguage(_strings.localeName),
+      ),
+    );
     _beginContinuousMovement();
     await _startBgmIfAllowed();
   }
@@ -280,9 +295,11 @@ class _GamePageState extends State<GamePage>
     if (!_gameStarted) return;
     setState(() => paused = !paused);
     if (paused) {
+      _analyticsTracker.pauseRound();
       _gameTicker?.stop();
       _lastFrameTime = null;
     } else {
+      _analyticsTracker.resumeRound();
       _lastFrameTime = null;
       _gameTicker?.start();
     }
@@ -470,19 +487,17 @@ class _GamePageState extends State<GamePage>
         break;
     }
 
-    if (wrapWalls) {
-      next = _boardGeometry.wrap(next);
-    } else {
-      if (!_boardGeometry.contains(next)) {
-        _gameOver();
-        return;
-      }
-    }
+    if (wrapWalls) next = _boardGeometry.wrap(next);
 
     // Das letzte Schwanzfeld wird in diesem Tick frei und ist daher sicher.
-    if (obstacles.contains(next) ||
-        snake.take(snake.length - 1).contains(next)) {
-      _gameOver();
+    final endReason = collisionEndReason(
+      wrapWalls: wrapWalls,
+      isInsideBoard: _boardGeometry.contains(next),
+      hitsObstacle: obstacles.contains(next),
+      hitsSelf: snake.take(snake.length - 1).contains(next),
+    );
+    if (endReason != null) {
+      _gameOver(endReason);
       return;
     }
 
@@ -534,7 +549,7 @@ class _GamePageState extends State<GamePage>
     });
   }
 
-  Future<void> _gameOver() async {
+  Future<void> _gameOver(GameEndReason endReason) async {
     if (_endingGame) return;
     _endingGame = true;
     _gameTicker?.stop();
@@ -545,6 +560,11 @@ class _GamePageState extends State<GamePage>
 
     final finishedLevel = selectedLevel;
     final finalScore = score;
+    _analyticsTracker.endRound(
+      score: finalScore,
+      snakeLength: snake.length,
+      endReason: endReason,
+    );
     final isNewHighScore =
         finalScore > 0 && finalScore > _roundStartingHighScore;
     final submittedGlobally = isNewHighScore
@@ -755,6 +775,7 @@ class _GamePageState extends State<GamePage>
     final resumeAfterClosing = _gameStarted && !paused;
     if (resumeAfterClosing) {
       setState(() => paused = true);
+      _analyticsTracker.pauseRound();
       _gameTicker?.stop();
       _lastFrameTime = null;
       unawaited(_pauseBgm());
@@ -771,6 +792,7 @@ class _GamePageState extends State<GamePage>
     );
     if (resumeAfterClosing && mounted && _gameStarted) {
       setState(() => paused = false);
+      _analyticsTracker.resumeRound();
       _lastFrameTime = null;
       _gameTicker?.start();
       unawaited(_startBgmIfAllowed());
@@ -933,6 +955,11 @@ class _GamePageState extends State<GamePage>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _analyticsTracker = GameAnalyticsTracker(
+      widget.promoScene == null
+          ? widget.analyticsService
+          : const NoopAnalyticsService(),
+    );
 
     _moveCtrl = AnimationController(
       vsync: this,
@@ -974,7 +1001,7 @@ class _GamePageState extends State<GamePage>
       _applyPromoScene(promoScene);
       if (promoScene.showGameOver) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted) unawaited(_gameOver());
+          if (mounted) unawaited(_gameOver(GameEndReason.self));
         });
       } else if (promoScene.autoPlay) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -999,6 +1026,7 @@ class _GamePageState extends State<GamePage>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _analyticsTracker.cancelRound();
     _gameTicker?.dispose();
     _moveCtrl.dispose();
     _ambientCtrl.dispose();
@@ -1015,6 +1043,7 @@ class _GamePageState extends State<GamePage>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed || paused || !mounted) return;
     setState(() => paused = true);
+    _analyticsTracker.pauseRound();
     _gameTicker?.stop();
     _lastFrameTime = null;
     unawaited(_pauseBgm());
