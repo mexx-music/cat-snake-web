@@ -1,27 +1,15 @@
 # Cat Snake Analytics
 
-## Current Firebase prerequisite
+## Current Firebase configuration
 
-The Firebase project `cat-snake` does not currently have Google Analytics
-enabled. The public web app configuration therefore has no GA4 measurement ID.
-The game safely falls back when Analytics is unavailable, but no events can be
-received until this project-level prerequisite is completed.
+Google Analytics is enabled for Firebase project `cat-snake` with Analytics
+account **Default Account for Firebase** and GA4 property **cat-snake**
+(property ID `556892628`). The web stream **Cat Snake Web** has stream ID
+`15891823796` and measurement ID `G-R5V7D9PPKS`.
 
-In the Firebase console:
-
-1. Open **Cat Snake → Project settings → Integrations**.
-2. In **Google Analytics**, choose **Enable Google Analytics**.
-3. Select the intended Google Analytics account or create the requested GA4
-   property. Do not guess here: the account/property owner must make this
-   choice.
-4. Finish the integration wizard.
-5. In Google Analytics open **Admin → Data streams → Web** and verify that the
-   Cat Snake stream uses
-   `https://mexx-music.github.io/cat-snake-web/`.
-6. Refresh the FlutterFire web configuration (`flutterfire configure`) and
-   verify that `lib/firebase_options.dart` contains the resulting `G-...`
-   measurement ID. With recent web SDKs this value can be fetched dynamically,
-   but keeping it in the config is the reliable fallback for GitHub Pages.
+The same measurement ID is stored in `lib/firebase_options.dart` so the
+Flutter web build initializes Analytics reliably on GitHub Pages. The verified
+web stream URL is `https://mexx-music.github.io/cat-snake-web/`.
 
 ## Events
 

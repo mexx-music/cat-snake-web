@@ -18,5 +18,6 @@ class DefaultFirebaseOptions {
     projectId: 'cat-snake',
     authDomain: 'cat-snake.firebaseapp.com',
     storageBucket: 'cat-snake.firebasestorage.app',
+    measurementId: 'G-R5V7D9PPKS',
   );
 }
