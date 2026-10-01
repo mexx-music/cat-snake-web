@@ -26,6 +26,7 @@ void main() {
     expect(painter.rows, 22);
     expect(tester.getSize(find.byKey(const Key('game-board'))).height,
         greaterThan(tester.getSize(find.byKey(const Key('game-board'))).width));
+    expect(tester.getSize(find.byKey(const Key('paw-up'))).width, 44);
     _expectValidEntities(painter);
     expect(tester.takeException(), isNull);
 

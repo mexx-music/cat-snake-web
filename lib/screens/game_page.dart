@@ -1268,6 +1268,9 @@ class _GamePageState extends State<GamePage>
                           final useSideControls = constraints.maxWidth >= 620 &&
                               constraints.maxWidth >
                                   constraints.maxHeight * 1.35;
+                          final useCompactPortraitControls = !useSideControls &&
+                              constraints.maxWidth <= 480 &&
+                              constraints.maxHeight <= 720;
                           final board = _buildBoard(bodyDark, bodyLight);
                           final controls = Center(
                             child: useKeyboardControls
@@ -1276,7 +1279,11 @@ class _GamePageState extends State<GamePage>
                                   )
                                 : _DPad(
                                     key: const Key('dpad'),
-                                    buttonSize: useSideControls ? 62 : 58,
+                                    buttonSize: useSideControls
+                                        ? 62
+                                        : useCompactPortraitControls
+                                            ? 44
+                                            : 58,
                                     onUp: () => _changeDir(Direction.up),
                                     onDown: () => _changeDir(Direction.down),
                                     onLeft: () => _changeDir(Direction.left),
